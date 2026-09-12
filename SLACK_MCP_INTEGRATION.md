@@ -4,7 +4,7 @@ How to give any Claude Code project a two-way Slack channel: you talk to Claude
 from Slack, Claude answers there, sends images and canvases, and optionally
 mirrors everything it writes into the channel as it works.
 
-The implementation lives in `D:\MCP-tools\Claude-Code-Slack-Channel`. This file
+The implementation lives in `/path/to/claude-code-slack-bridge`. This file
 is the standing reference for wiring it into **another project**, or for handing
 to **another AI agent** that has to set it up.
 
@@ -140,7 +140,7 @@ Create `.mcp.json` in the project root:
     "slack-channel": {
       "type": "stdio",
       "command": "npx",
-      "args": ["tsx", "D:/MCP-tools/Claude-Code-Slack-Channel/webhook.ts"],
+      "args": ["tsx", "/path/to/claude-code-slack-bridge/webhook.ts"],
       "env": {
         "SLACK_APP_TOKEN": "xapp-…",
         "SLACK_BOT_TOKEN": "xoxb-…",
@@ -168,7 +168,7 @@ in every project, and §0.3 then applies across all of them.
 Restart Claude Code. Confirm with:
 
 ```bash
-grep -E "APP STARTED|Bot user id" D:/MCP-tools/Claude-Code-Slack-Channel/slack-debug.log
+grep -E "APP STARTED|Bot user id" /path/to/claude-code-slack-bridge/slack-debug.log
 ```
 
 ---
@@ -179,7 +179,7 @@ Because of §0.1, Claude must follow the mention file itself. Arm a **persistent
 Monitor** at the start of each session:
 
 ```
-node "D:/MCP-tools/Claude-Code-Slack-Channel/watch-mentions.mjs" <BOT_USER_ID> --config "<path to .mcp.json>"
+node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" <BOT_USER_ID> --config "<path to .mcp.json>"
 ```
 
 Each line the script prints becomes an event in the session, so a Slack mention
@@ -413,7 +413,7 @@ Current builds anchor it to the server's own directory.
 Diagnostic one-liner:
 
 ```bash
-grep -cE "Received message event|Successfully forwarded|EPIPE|MCP Error" D:/MCP-tools/Claude-Code-Slack-Channel/slack-debug.log
+grep -cE "Received message event|Successfully forwarded|EPIPE|MCP Error" /path/to/claude-code-slack-bridge/slack-debug.log
 ```
 
 `Received` high and your message absent from Claude means §0.1 — the gate, not
@@ -447,7 +447,7 @@ In order:
 ### Verifying your work
 
 ```bash
-cd D:/MCP-tools/Claude-Code-Slack-Channel && npm test
+cd /path/to/claude-code-slack-bridge && npm test
 ```
 
 198 tests over `inbox.ts`, `slackRich.ts`, `transcript.ts`, `mrkdwn.ts`,

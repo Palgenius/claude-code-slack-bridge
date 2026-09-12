@@ -57,7 +57,7 @@ test('toolTarget', async (t) => {
 
     await t.test('falls back to the file, as a basename only', () => {
         // A full path says more about the machine than is useful in a channel.
-        assert.equal(toolTarget({ file_path: 'D:/secret-project/src/auth.ts' }), 'auth.ts')
+        assert.equal(toolTarget({ file_path: '/repo/src/auth.ts' }), 'auth.ts')
     })
 
     await t.test('uses a search pattern when there is nothing better', () => {

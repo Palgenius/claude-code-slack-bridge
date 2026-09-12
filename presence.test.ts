@@ -22,8 +22,8 @@ test('renderPresence', async (t) => {
     const since = new Date('2026-09-12T23:24:00').getTime()
 
     await t.test('says it is connected, and how to reach it', () => {
-        const text = renderPresence({ project: '2FA_app', online: true, since })
-        assert.match(text, /^🟢 \*Claude is connected\* · 2FA_app/)
+        const text = renderPresence({ project: 'your-project', online: true, since })
+        assert.match(text, /^🟢 \*Claude is connected\* · your-project/)
         assert.match(text, /23:24/)
         assert.match(text, /@mention me/)
     })
@@ -32,7 +32,7 @@ test('renderPresence', async (t) => {
         // The point of the offline line: a quiet channel and a dead one look
         // identical otherwise.
         const text = renderPresence({
-            project: '2FA_app', online: false, since,
+            project: 'your-project', online: false, since,
             until: since + 51 * 60_000,
         })
         assert.match(text, /^⚪ \*Claude is offline\*/)
@@ -167,20 +167,20 @@ test('findAbandoned', async (t) => {
 
 test('projectName', async (t) => {
     await t.test('uses the working directory, which is the project', () => {
-        assert.equal(projectName({}, 'E:/yas_apps/2FA_app'), '2FA_app')
+        assert.equal(projectName({}, '/path/to/your-project'), 'your-project')
     })
 
     await t.test('an explicit name wins', () => {
-        assert.equal(projectName({ SLACK_PROJECT_NAME: 'Two-Factor' }, 'E:/yas_apps/2FA_app'), 'Two-Factor')
+        assert.equal(projectName({ SLACK_PROJECT_NAME: 'Two-Factor' }, '/path/to/your-project'), 'Two-Factor')
     })
 
     await t.test('the server\'s own directory is not a project', () => {
         // What you get when it was launched by hand rather than by a session.
-        assert.equal(projectName({}, 'D:/MCP-tools/Claude-Code-Slack-Channel'), '')
+        assert.equal(projectName({}, '/opt/Claude-Code-Slack-Channel'), '')
     })
 
     await t.test('ignores a blank override', () => {
-        assert.equal(projectName({ SLACK_PROJECT_NAME: '   ' }, 'E:/x/Radars'), 'Radars')
+        assert.equal(projectName({ SLACK_PROJECT_NAME: '   ' }, '/x/Widgets'), 'Widgets')
     })
 })
 

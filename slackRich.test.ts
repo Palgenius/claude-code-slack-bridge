@@ -7,7 +7,7 @@ import {
 } from './slackRich.js'
 
 const TOKEN = 'xoxb-test'
-const CHANNEL = 'C0C17J47NLW'
+const CHANNEL = 'C01ABCDEFGH'
 
 /**
  * A fake Slack. `plan` maps an api method (or 'PUT' for the upload URL) to the

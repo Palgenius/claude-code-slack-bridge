@@ -1,23 +1,45 @@
 {
-  "name": "claude-code-slack-channel",
-  "version": "1.0.0",
-  "description": "MCP Server over Slack Socket Mode for Claude Code",
-  "main": "webhook.ts",
+  "name": "claude-code-slack-bridge",
+  "version": "2.0.0",
+  "description": "Talk to Claude Code from a Slack channel, and watch it work while it answers. An MCP server over Slack Socket Mode.",
+  "license": "MIT",
+  "author": "Ali Alsaidi",
+  "contributors": [
+    "Dhaval Nagar / AppGambit Studio (original project)"
+  ],
+  "keywords": [
+    "mcp",
+    "slack",
+    "claude",
+    "claude-code",
+    "anthropic",
+    "socket-mode",
+    "bot",
+    "model-context-protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/claude-code-slack-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OWNER/claude-code-slack-bridge/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
+  "main": "webhook.ts",
+  "files": [
+    "*.ts",
+    "*.mjs",
+    "*.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "npx tsx webhook.ts",
     "test": "npx tsx --test inbox.test.ts slackRich.test.ts transcript.test.ts mrkdwn.test.ts progress.test.ts turn.test.ts presence.test.ts",
     "watch-mentions": "node watch-mentions.mjs"
   },
-  "keywords": [
-    "mcp",
-    "slack",
-    "claude",
-    "anthropic",
-    "socket-mode"
-  ],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@slack/bolt": "^4.6.0",

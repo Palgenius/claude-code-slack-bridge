@@ -38,14 +38,14 @@
 
   ```
   Server: connected to Slack, pid 43888
-  Channel: C0C17J47NLW   Project: 2FA_app
-  Bot: U0C17G82RHR
+  Channel: C01ABCDEFGH   Project: your-project
+  Bot: U0BOT123456
   Watcher: NOT RUNNING - not running
     (warning explaining that nothing is delivering messages to this session)
   Unread in this channel: 1
   Streaming: on (tool detail: none)
   Other channels on this Slack app (they share message delivery at random):
-    C0C2952A1CY: server up, watcher down
+    C02IJKLMNOP: server up, watcher down
   ```
 
   The other-channels section is there because two projects on one Slack app

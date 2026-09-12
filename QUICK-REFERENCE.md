@@ -36,13 +36,13 @@ messages pile up unread.
 
 ```
 Server:  connected to Slack, pid 41580, up 59s     ← outbound is fine
-Channel: C0C17J47NLW   Project: 2FA_app
-Bot:     U0C17G82RHR                               ← blank = mentions can't match
+Channel: C01ABCDEFGH   Project: your-project
+Bot:     U0BOT123456                               ← blank = mentions can't match
 Watcher: RUNNING, pid 34632                        ← THE line that matters
 Unread in this channel: 0
 Streaming: on (tool detail: none)
 Other channels on this Slack app (they share message delivery at random):
-  C0C2952A1CY: server up, watcher down
+  C02IJKLMNOP: server up, watcher down
 ```
 
 ---
@@ -51,7 +51,7 @@ Other channels on this Slack app (they share message delivery at random):
 
 ```
 Monitor({
-  command: 'node "D:/MCP-tools/Claude-Code-Slack-Channel/watch-mentions.mjs" --config "<project>/.mcp.json"',
+  command: 'node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project>/.mcp.json"',
   description: 'Slack @mentions for <project>',
   persistent: true,
   timeout_ms: 3600000,
@@ -89,13 +89,13 @@ inbound goes silently dead.
 
 ```bash
 # start the watcher outside Claude
-node "D:/MCP-tools/Claude-Code-Slack-Channel/watch-mentions.mjs" --config "<project>/.mcp.json"
+node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project>/.mcp.json"
 
 # tests
-cd D:/MCP-tools/Claude-Code-Slack-Channel && npm test
+cd /path/to/claude-code-slack-bridge && npm test
 
 # read the log for one project (every line is tagged [pid channel])
-grep "C0C17J47NLW" D:/MCP-tools/Claude-Code-Slack-Channel/slack-debug.log | tail -30
+grep "C01ABCDEFGH" /path/to/claude-code-slack-bridge/slack-debug.log | tail -30
 
 # find an orphaned server (parent-alive=False)
 powershell -Command "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { \$_.CommandLine -match 'preflight' } | ForEach-Object { '{0} parent-alive={1}' -f \$_.ProcessId, ((Get-CimInstance Win32_Process -Filter \"ProcessId=\$(\$_.ParentProcessId)\") -ne \$null) }"

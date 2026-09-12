@@ -1,28 +1,99 @@
-# Claude Code Slack Channel
+# Claude Code ⇄ Slack
 
-Connect Claude Code to your Slack workspace using the Model Context Protocol (MCP). This server runs a Slack App in Socket Mode that routes incoming messages from Slack directly into your local Claude Code session, and gives Claude the ability to securely reply back!
+Talk to Claude Code from a Slack channel, and watch it work while it answers.
+
+An MCP server that runs a Slack app in Socket Mode — no tunnel, no public IP,
+nothing leaves your machine except what you send to Slack.
+
+```
+You  @claude deploy the staging branch and tell me if the tests pass
+
+     ⏳ Working…  ·  1m 12s  ·  14 tools  ·  7.8k tokens
+     Bash  Run the full test suite
+     Edit  deploy.ts
+     Read  config.yml
+```
+
+…and that same message rewrites itself when the turn ends:
+
+```
+     ✅ Done  ·  2m 40s  ·  23 tools  ·  31k tokens
+     touched  deploy.ts  config.yml
+```
+
+Your message gets 👀 the moment Claude picks it up and ✅ when it finishes, so a
+question that was never seen is obvious without reading anything.
+
+---
+
+## Why this exists
+
+Claude Code delivers `notifications/claude/channel` **only** when the session was
+started with `--channels`, a research-preview flag the desktop app does not pass.
+The notification is accepted and then dropped by a capability gate — silently,
+with no error in any log, in Slack, or on screen.
+
+So the obvious design (MCP server pushes the message at Claude) cannot work on
+most machines. This project works around it: mentions are written to a
+per-channel inbox on disk, and a small watcher turns each new one into an event
+in the session. Outbound has no counterpart API at all, so the live view is built
+by tailing the session transcript Claude Code already writes.
+
+Everything here was verified against a live workspace. Where something is a
+recommendation rather than a fact about the code, the docs say so.
+
+---
 
 ## Features
 
-- **Two-Way Communication**: Send messages from Slack to Claude Code, and allow Claude Code to natively reply using an MCP tool (`send_slack_message`).
-- **Zero Configuration Tunnels**: Uses Slack Socket Mode, meaning no `ngrok` or public IP addresses are required. Runs completely locally!
-- **Private Channel Support**: Fully supports routing messages from private Slack channels.
+**Conversation**
+- Replies land **in the thread** you asked in, not at the top of the channel
+- **Markdown is converted** to Slack's dialect — `**bold**`, headings, links and
+  fenced code render properly instead of showing their syntax
+- Long messages are **split on line boundaries**, never truncated and never cut
+  inside a code fence
+- **Direct messages** work without an `@mention`
+- Images and files you send are downloaded so Claude can actually look at them
 
-## Setup Instructions
+**Seeing what's happening**
+- A **live turn card** that ticks with elapsed time, tool count and tokens, then
+  collapses to the list of files the turn changed
+- **`slack_progress`** — a checklist kept to one self-rewriting message
+- A **presence line** per channel: 🟢 connected / ⚪ offline, one message edited in
+  place rather than a notice per restart
+- **`slack_status`** — one call answers "is this actually working?"
 
-### 1. Create a Slack App
-1. Go to [Slack API Apps](https://api.slack.com/apps) and click **Create New App** > **From scratch**.
-2. Go to **Socket Mode** (left sidebar) and toggle it **On**.
-3. Generate an **App-Level Token** with the `connections:write` scope. *(Starts with `xapp-`)*.
-4. Go to **OAuth & Permissions** (left sidebar), scroll to **Scopes > Bot Token Scopes**, and add the `channels:history`, `chat:write`, and `groups:history` scopes. Add `im:history` too if you want to talk to the bot in a direct message.
-5. Go to **Event Subscriptions** (left sidebar), toggle **Enable Events** to **On**, and subscribe to `message.channels` and `message.groups` under "Subscribe to bot events" — plus `message.im` for direct messages.
-6. **Important**: Scroll to the bottom and click **Save Changes**.
-7. Go to **Install App** and install it into your workspace to get your **Bot User OAuth Token** *(Starts with `xoxb-`)*.
+**Not losing things**
+- Per-channel inbox and read cursor, so several projects don't read each other's
+  messages
+- A message Slack delivers to the wrong project's server is **routed to the right
+  inbox** rather than silently dropped
+- Servers exit with their session instead of orphaning and holding a socket
+- Status lines left behind by a crash are corrected by any other live session
 
-### 2. Configure Claude Code
-You can add this MCP server to your global Claude Code configuration (`~/.claude.json`) or to a project-specific `.claude.json` configuration. 
+**Care with secrets** (streaming is off by default)
+- `thinking` blocks have **no path** to the output
+- Credentials are masked on the way out: `pass=`, Slack tokens, connection
+  strings, bearer headers, private keys, long hex runs
+- Tool detail, when enabled, uses only fields written to be read — never a
+  command string, never file contents
 
-Run `npm install` in this directory to install the `@slack/bolt` and `tsx` dependencies. Then, add the following to your `mcpServers` block, replacing the path and tokens with your actual values:
+---
+
+## Quick start
+
+**1. Create a Slack app** ([full steps](SETUP-NEW-PROJECT.md)) — Socket Mode on,
+an app token (`xapp-`), a bot token (`xoxb-`), the scopes listed in the setup
+guide, and `/invite @YourBot` to the channel.
+
+**2. Install:**
+
+```bash
+git clone https://github.com/<you>/claude-code-slack-bridge.git
+cd claude-code-slack-bridge && npm install
+```
+
+**3. Add `.mcp.json` to your project:**
 
 ```json
 {
@@ -30,402 +101,138 @@ Run `npm install` in this directory to install the `@slack/bolt` and `tsx` depen
     "slack-channel": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "tsx",
-        "/path/to/this/repository/webhook.ts"
-      ],
+      "args": ["tsx", "/path/to/claude-code-slack-bridge/webhook.ts"],
       "env": {
         "SLACK_APP_TOKEN": "xapp-...",
         "SLACK_BOT_TOKEN": "xoxb-...",
-        "SLACK_CHANNEL_ID": "C0..." // Optional: add a channel ID here so it only listens to one specific channel!
+        "SLACK_CHANNEL_ID": "C0..."
       }
     }
   }
 }
 ```
 
-### 3. Usage
-- Simply restart Claude Code. The server will initialize in the background and connect to Slack.
-- Invite your bot to any channel in Slack using `/invite @YourBotName`.
-- Send a message in that channel, and it will seamlessly appear in Claude Code as context!
-- You can ask Claude Code directly to "Reply to that Slack message" and it will autonomously use the `send_slack_message` tool to post back.
+**4. Add the watcher section to your project's `CLAUDE.md`** — copy it from
+[SETUP-NEW-PROJECT.md](SETUP-NEW-PROJECT.md).
 
-## ⚠️ Architecture Caveat: Global vs. Local Configuration
-Slack's Socket Mode allows multiple WebSocket connections using the identical App Token, and **load-balances (randomizes)** incoming messages across all connected clients. 
+**5. Restart Claude Code**, then ask it: *"is slack connected?"*
 
-Because of this:
-- **Global Configuration (`~/.claude.json`)**: If you have multiple Terminal windows open running Claude Code simultaneously, each window spawns its own MCP server. When you send a Slack message, Slack will randomly route it to only *one* of your active terminals.
-- **Local Configuration (`./.claude.json`)**: If you only want Slack messages to route uniquely to a specific project workspace, do not configure this server globally. Instead, configure the `mcpServers` block in a local `.claude.json` file inside that specific project folder so the webhook server is only spawned when you are actively working in that directory.
+---
 
-## Troubleshooting
-If messages aren't arriving:
-- Ensure you have invited the bot to the channel.
-- Ensure you clicked the yellow "Reinstall to Workspace" banner in Slack after changing event scopes.
-- Check the `slack-debug.log` file generated in the root of this repository.
+## ⚠️ The one thing to know
+
+There are **two** processes and only one starts by itself.
+
+| | Starts automatically? | Without it |
+| --- | --- | --- |
+| **MCP server** | ✅ with the session | Nothing works |
+| **Mention watcher** | ❌ **no** | Messages arrive, are stored correctly, and **nothing ever surfaces them** |
+
+That second failure is the one that will cost you an evening: outbound keeps
+working, the channel looks alive, and the silence is indistinguishable from
+nobody having written to you.
+
+**So `slack_status` is the first thing to run whenever Slack seems quiet.** The
+`Watcher:` line is the answer most of the time.
 
 ---
 
 ## Documentation
 
-| File | |
+| | |
 | --- | --- |
-| **`QUICK-REFERENCE.md`** | One page. The session ritual, what to check when Slack goes quiet, every tool and command. **Start here.** |
-| **`SETUP-NEW-PROJECT.md`** | The full procedure for wiring a new project: Slack app setup, `.mcp.json`, the `CLAUDE.md` section, troubleshooting in the order that finds the problem fastest. |
-| `SLACK_MCP_INTEGRATION.md` | Why the design is what it is — the capability gate, Socket Mode load-balancing, the transcript format. Reference, not procedure. |
-| `CHANGES.md` | Dated log of every change and the reasoning behind it. |
-
-**The one thing to know:** there are two processes and only one starts by
-itself. The MCP server starts with the session; the mention watcher does not,
-and without it incoming Slack messages are written to the inbox correctly and
-nothing ever surfaces them. Run `slack_status` whenever Slack seems quiet — the
-`Watcher:` line is almost always the answer.
+| **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** | One page — the session ritual, symptom→cause table, every tool and command. **Start here.** |
+| **[SETUP-NEW-PROJECT.md](SETUP-NEW-PROJECT.md)** | Full procedure for wiring a project, and troubleshooting in the order that finds the problem fastest |
+| [SLACK_MCP_INTEGRATION.md](SLACK_MCP_INTEGRATION.md) | Why the design is what it is — the capability gate, Socket Mode load-balancing, the transcript format |
+| [CHANGES.md](CHANGES.md) | Every change and the reasoning behind it, including the failures |
 
 ---
 
-# Local modifications (12 September 2026)
+## Tools Claude gets
 
-This copy has been changed. `webhook.ts.bak-20260912-183246` is the original.
-
-## The problem these solve
-
-Incoming messages never reached Claude. The cause was not in this server: it
-forwarded every message correctly. Claude Code only delivers
-`notifications/claude/channel` when its session was started with `--channels`,
-and **the Claude desktop app does not pass that flag** — the notification is
-accepted and then dropped by a capability gate, silently, with no error in
-this log, in Slack, or on screen.
-
-`--channels` is a research preview and only reachable from the terminal CLI,
-so on a machine where the desktop app is the only option the native path
-cannot be used at all.
-
-## What was added
-
-**A mention inbox.** Messages that `@mention` the bot are appended to
-`slack-inbox.jsonl` as well as being pushed at the gate. Append-only, because
-Slack load-balances Socket Mode across every connected client and several
-instances may be writing at once.
-
-**`watch-mentions.mjs`** turns each new mention into a line on stdout. Run it
-under a Claude Code Monitor and every line becomes an event in the session —
-which is how a Slack message reaches Claude without the flag:
-
-```
-node watch-mentions.mjs --config <path to that project's .mcp.json>
-```
-
-Both the bot id and the channel are read out of that config, because it already
-says which bot and which channel this project uses and one source beats two. A
-command that has to be assembled by hand is one that does not get run — which
-is exactly what kept happening. `--channel` still overrides, and a bot id can
-still be passed as the first argument.
-
-**Is it actually working? Ask `slack_status`.** It answers in one call what
-previously took a log file and a process list:
-
-```
-Server: connected to Slack, pid 43888
-Channel: C0C17J47NLW   Project: 2FA_app
-Watcher: NOT RUNNING — not running
-  ⚠ Nothing is delivering Slack messages to this session…
-Unread in this channel: 1
-Other channels on this Slack app (they share message delivery at random):
-  C0C2952A1CY: server up, watcher down
-```
-
-The watcher line is the one that matters: everything else can be perfect and
-inbound is still dead without it. Both the server and the watcher publish
-heartbeat files, so "is anything connected" and "is anything listening" are
-separate questions with separate answers.
-
-**Start it with Monitor and `persistent: true`. Nothing else survives.**
-
-```
-Monitor({
-  command: 'node ".../watch-mentions.mjs" --config "<project>/.mcp.json"',
-  description: 'Slack @mentions for this project',
-  persistent: true,
-  timeout_ms: 3600000,
-})
-```
-
-A Bash background task is capped at ten minutes and a non-persistent Monitor at
-five. The watcher polls forever, so either one is killed part-way through a
-session and inbound goes silently dead -- messages keep landing in the inbox
-correctly and nothing surfaces them, which looks exactly like nobody having
-written. That failure happened three times in one evening before the cause was
-found, each time looking like a fresh bug somewhere else.
-
-**It does not start itself.** The MCP server spells the Monitor call out in its
-own `instructions`, so Claude is told how to start it at the beginning of every
-session rather than anyone having to remember.
-
-`--config` is only used to read the bot token for downloading attachments; it
-is read from the file so the token never appears in a command line. It also
-parses an older instance's `slack-debug.log`, so it works while a session
-started before these changes is still running.
-
-**Six new tools:** `slack_status` (below), `check_slack_inbox` (mentions not yet read),
-`send_slack_image` (upload a local file inline — `files.upload` is deprecated,
-so this is the three-step `getUploadURLExternal` → PUT → `completeUploadExternal`
-replacement), `create_slack_canvas` (markdown canvas, falling back to a
-standalone canvas shared into the channel, since a channel holds only one),
-`update_slack_message` (rewrite a message already posted), and `slack_progress`
-(below).
-
-`send_slack_message` returns the message timestamp, and `update_slack_message`
-takes it. That pair is what a live "working on it" marker needs: post once,
-rewrite the same message as the job moves, rewrite it a last time when it is
-done — one changing line instead of a scroll of progress reports.
-
-**A live progress checklist — `slack_progress`.** One message in the channel
-that rewrites itself as the work moves:
-
-```
-Deploy
-✅ reading the deployed file
-✅ uploading the release
-⏳ running the deploy script     ← bold, because it is the one running
-⏳ verify
-```
-
-Call it once with `steps` to post the board and get back a `ts`; call it again
-with that `ts` and either `update: [{step, status}]` or `advance: true` to move
-it on. `step` is an index or any substring of the step's text, so a caller does
-not have to track positions. The board is remembered in memory by `ts`, which
-is what lets a single step move without resending the list — and if the server
-has restarted since, it says so rather than rewriting the message with a board
-that has silently lost its history.
-
-`advance` is the call to reach for between stages: it finishes whatever is
-active and starts the next pending step, which removes the commonest way to get
-a board wrong — marking a step done, forgetting to start the next one, and
-leaving the checklist looking stalled.
-
-**The channel says whether anything is listening.** On connecting, the server
-posts one line:
-
-```
-🟢 Claude is connected · 2FA_app
-Listening here since 23:24 — @mention me and I'll pick it up.
-```
-
-and rewrites that same line when the session ends:
-
-```
-⚪ Claude is offline · 2FA_app
-Was connected 23:24–00:15 (51m). Nothing is listening in this channel right now.
-```
-
-One message, edited — not a notice per startup. Sessions restart often, and a
-channel filling with "connected… connected… connected" is worse than no signal:
-every line is stale the moment the next arrives and none of them tells you the
-current state. The timestamp is kept on disk so a restart finds its own message
-and edits it.
-
-**A crash is covered too.** Writing "offline" on the way out only works when
-something gets to run -- a force-kill, a crash or a power cut runs no handler,
-and the line would claim to be listening forever. So no process is trusted to
-announce its own death: every running server sweeps for status lines whose
-heartbeat has stopped and corrects them, for any project, since they all share
-one directory. The only window where a green line can lie is when *nothing at
-all* is running; the next session to start closes it.
-
-Without this a quiet channel and a dead one look identical — you write, nothing
-answers, and the bridge being down is indistinguishable from Claude being busy.
-The project name comes from the working directory, or `SLACK_PROJECT_NAME`.
-Turn it off with `SLACK_ANNOUNCE=0`.
-
-**Markdown is converted.** Claude writes GitHub-flavoured markdown; Slack
-speaks a different dialect and renders the difference literally, so `**bold**`
-arrived wearing its asterisks and `[text](url)` as the whole bracket-paren
-construction. `mrkdwn.ts` converts on the way out. Code is parked before any
-rule runs and restored at the end, so a regex meant for prose can never rewrite
-something inside a code sample — which is what makes a careless converter worse
-than none.
-
-**Replies go into threads.** Incoming messages carry their `thread_ts` through
-the inbox and the watcher, and every sending tool takes one. An answer sits
-under the question instead of at the top of the channel.
-
-**Long messages are split, not truncated.** Slack rejects anything over 4000
-characters outright. This used to cut at 3900, which kept the message and lost
-the conclusion. Now it splits on line boundaries — never inside a fenced code
-block, since an unclosed fence renders the rest of the channel as code — and
-hangs the continuation in a thread off the first part, so a long answer is
-still one item in the channel.
-
-**Direct messages work.** A DM is addressed to the bot by definition, so no
-`@mention` is needed in one. Needs the `im:history` scope and the `message.im`
-event.
-
-## What was fixed
-
-- **Only `@mention`s are collected.** The channel stays usable for ordinary
-  conversation without waking Claude.
-- **Subtype filtering.** The original skipped only `bot_message`, so
-  huddle-started and message-edited events were forwarded with empty text.
-  `file_share` and `thread_broadcast` are kept — a message with an image
-  attached is still a person typing.
-- **Absolute paths.** `slack-debug.log` was written to a bare relative path,
-  so it landed in whatever directory the session started in rather than here.
-
-- **Line breaks survive.** Stripping the `@mention` ran `\s+` over the whole
-  message, so a pasted stack trace, numbered list or code block reached Claude
-  as one run-on line. Only the space around the removed token is collapsed now.
-
-- **One inbox per channel, and a cross-channel message is routed, not
-  dropped.** Every project points its config at the same `webhook.ts`, so every
-  project shared one inbox and one cursor: whichever session called
-  `check_slack_inbox` first read the others' messages *and marked them read*,
-  and the session they were meant for never saw them. The file is keyed on the
-  channel now.
-
-  The same change fixes the worse half of it. Slack hands each message to one
-  randomly chosen connection, so with two projects running, roughly half of
-  each one's messages arrived at the other server -- which checked
-  `SLACK_CHANNEL_ID`, found a mismatch and `return`ed, silently, with no record
-  anywhere. Those messages are now written to the inbox of the channel they
-  belong to, so the session that owns it finds them on its next
-  `check_slack_inbox`. Late rather than lost, with the shared filesystem doing
-  the routing the socket does not.
-
-- **Every log line carries its pid and channel.** One log file is shared by
-  every server on the machine, and three processes interleaving into it with
-  nothing to tell them apart is why it read as noise. The pid also makes an
-  orphan identifiable from the log instead of by walking the process tree.
-
-- **A repeated message is read once.** Socket Mode redelivers on reconnect and
-  several instances append to the inbox at the same time, so the same message
-  genuinely lands in the file twice — and `check_slack_inbox` was handing
-  Claude the same instruction twice in a row. Deduplicated by `ts`.
-
-- **The server exits when its session does.** An orphan kept its Slack socket,
-  so Slack load-balanced messages onto a dead pipe and they vanished with no
-  error anywhere; the fix used to be hunting the process down by hand. It now
-  shuts down when stdin closes, which is what the parent exiting looks like
-  over stdio.
-
-- **Missing tokens are named at startup.** The first symptom used to be either
-  `invalid_auth` on a tool call or a socket that never connected, neither of
-  which says which variable was left out of the config.
-
-- **The log and the inbox rotate** at 4MB, keeping one generation. Both were
-  append-only with no bound. `all()` reads the rotated generation too, so
-  rotating cannot drop a mention nobody had read yet.
-
-## The live view — watching Claude work (opt-in)
-
-Claude Code has no outbound channel, but it writes the session to
-`~/.claude/projects/<project>/<session-id>.jsonl` as it goes. The transcript
-carries the whole shape of a turn, and it was not being read:
-
-- a `user` entry whose content is a plain string is somebody asking
-- `assistant` entries with `stop_reason: "tool_use"` are work continuing
-- `stop_reason: "end_turn"` is the answer being finished
-- `user` entries holding `tool_result` are the work coming back
-
-`turn.ts` reads that and the channel renders it the way the terminal does — one
-card per turn that rewrites itself while the work runs:
-
-```
-⏳ Working…  ·  1m 12s  ·  14 tools  ·  7.8k tokens
-
-…3 earlier
-Bash  Run the full test suite
-Edit  turn.ts
-Read  transcript.ts
-```
-
-and when the turn finishes, the activity gives way to what it changed:
-
-```
-✅ Done  ·  2m 40s  ·  23 tools  ·  31k tokens
-
-touched  webhook.ts  turn.ts  README.md
-```
-
-Claude's prose arrives underneath as separate messages, in the same thread.
-
-**Everything for a turn goes in one thread.** If a Slack mention started the
-work it is the asker's own thread, and **their message gets 👀 while it runs and
-✅ when it is finished** — so a question that was never picked up is obvious
-without reading a word. A turn nobody asked for starts its own thread off the
-card, so a long session stays one item in the channel.
-
-**Off unless you turn it on.** Add to the server's `env` block:
-
-```json
-"SLACK_STREAM": "1",
-"SLACK_STREAM_TOOLS": "0"
-```
-
-`SLACK_STREAM_TOOLS` controls how much of a tool call is shown:
-
-| Value | Shows |
+| Tool | For |
 | --- | --- |
-| `0` (default) | nothing about tools |
-| `1` | the tool's name — `Bash`, `Edit` |
-| `detail` | the name and a short target — `Bash  Run the full test suite` |
+| `slack_status` | Is the bridge actually working, end to end |
+| `send_slack_message` | Replying. Pass `thread_ts` back. |
+| `update_slack_message` | Rewriting a message in place |
+| `slack_progress` | A checklist for a multi-step job, kept to one message |
+| `send_slack_image` | A screenshot or chart, inline |
+| `create_slack_canvas` | Reference material that shouldn't scroll away |
+| `check_slack_inbox` | Reading unread mentions manually |
 
-`detail` never includes a command string, a file's contents, or the code around
-a match. It uses only fields written to be read: the one-line `description`
-Bash and the agent tools carry, the **basename** of a file path, a search
-pattern. All of it goes through the same redaction as the prose.
+---
 
-**Read this before enabling any of it.** This forwards Claude's side of the
-session to an external service. `transcript.ts` drops `thinking` blocks
-outright — private reasoning has no path to the output — and masks credentials
-on the way out: `pass=`, `xox?-` tokens, connection strings, bearer headers,
-private keys, long hex runs. That matters, because Claude's prose quotes files
-and command output; while this was being built, it printed a database password
-read from an Apache config, and an unredacted streamer would have posted it to
-the channel.
+## Architecture
 
-Masking is pattern-matching, not a guarantee. A secret in an unusual shape will
-go through. Enable it for a channel you would be comfortable pasting your
-terminal into.
+```
+Slack ──socket──► webhook.ts ──► slack-inbox-<channel>.jsonl
+                      │                      │
+                      │                      ▼
+                      │        watch-mentions.mjs  (Monitor, persistent)
+                      │                      │
+                      │                      ▼
+                      │              Claude Code session
+                      │                      │
+                      └────◄── tools ◄───────┘
 
-Messages are queued and drained at about one per second, which is
-`chat.postMessage`'s per-channel rate limit. The card is rewritten every four
-seconds while a turn runs, which is well inside `chat.update`'s allowance.
+            ~/.claude/projects/…/<session>.jsonl
+                        │
+                        ▼   tailed, when SLACK_STREAM=1
+                  the live turn card
+```
 
-## Extra Slack scopes
+| Module | |
+| --- | --- |
+| `webhook.ts` | MCP server: tools, Slack listener, the live view |
+| `inbox.ts` | Per-channel mention inbox, mention matching, subtype rules |
+| `slackRich.ts` | Post, edit, upload, canvas, react — `fetch` injected so it is testable |
+| `mrkdwn.ts` | Markdown → Slack mrkdwn, and splitting an over-long message |
+| `turn.ts` | Reading turns out of the transcript, and rendering the live card |
+| `progress.ts` | The `slack_progress` checklist |
+| `presence.ts` | The 🟢/⚪ status line and the heartbeat files |
+| `transcript.ts` | Finding and tailing the session transcript, and redaction |
+| `watch-mentions.mjs` | Turns a stored mention into an event in the session |
 
-`files:read` to download attachments, `files:write` to upload, `canvases:write`
-for canvases, `reactions:write` for the 👀/✅ lifecycle on your own messages,
-`im:history` for direct messages. A new scope does nothing until the app is reinstalled to the
-workspace.
+---
 
 ## Tests
 
-```
+```bash
 npm test
 ```
 
-198 tests over `inbox.ts`, `slackRich.ts`, `transcript.ts`, `mrkdwn.ts`,
-`progress.ts` and `turn.ts`, using the Node test runner through `tsx` — no new
-dependencies. `webhook.ts` opens a socket on import, so the logic worth testing
-lives in those modules instead.
+234 tests over eight modules using the Node test runner through `tsx` — no test
+dependencies. `slackRich.ts` takes `fetch` and `fs` as injected dependencies, so
+the Slack call sequences are checked without a workspace.
 
-The turn tracker was also replayed against a real session transcript, which is
-how the bug where one finished turn swallowed every later one was found — it
-reported a single turn running for twenty-three minutes.
+The turn tracker is also replayed against a real session transcript, not only
+fixtures. That is how the bug where one finished turn swallowed every later one
+was found: every fixture happened to begin with a user prompt, so the case that
+breaks it could not appear in one.
+
+---
 
 ## Known limits
 
-- The watcher only runs while a Claude session is open. Mentions arriving
-  otherwise queue in the inbox and are read on the next session.
-- Delivery is polled every 2 seconds.
-- Markdown tables are left as pipes. Slack has no table syntax and every
-  rendering of one is worse than the source.
-- The progress boards a server remembers are in memory. Restarting it loses
-  them; the tool then asks for the full step list rather than guessing.
-- The live view reads the transcript, so it is a second or two behind and
-  cannot show a partial sentence the way the terminal does. It updates when a
-  block is complete.
-- There is no way to interrupt Claude from Slack. Nothing in the protocol
-  carries it.
-- `send_slack_image` will upload any path it is given. Nothing restricts it to
-  a project directory, so treat it as able to put any readable file on this
-  machine into the channel.
+- **The watcher does not start itself.** The `CLAUDE.md` section makes Claude
+  start it; that is advice to a model, not a hook. Verify with `slack_status`.
+- **Two projects on one Slack app share delivery at random.** Socket Mode
+  load-balances across every connection. Strays are recovered through the
+  per-channel inbox, so they are late rather than lost — but prefer one Slack app
+  per project.
+- **No way to interrupt Claude from Slack.** Nothing in the protocol carries it.
+- **The live view is a second or two behind** and cannot show a partial sentence.
+- **`send_slack_image` will upload any path it is given**, with no allowlist.
+- **Markdown tables are left as pipes.** Slack has no table syntax.
+
+---
+
+## Credits
+
+Built on [AppGambitStudio/Claude-Code-Slack-Channel](https://github.com/AppGambitStudio/Claude-Code-Slack-Channel)
+by [Dhaval Nagar](https://github.com/AppGambitStudio) — the original Socket Mode
+MCP server and the `send_slack_message` tool. This project extends it with the
+inbox, threading, markdown conversion, the live view, progress boards, presence
+and status tooling.
+
+MIT, with the original copyright retained. See [LICENSE](LICENSE).

@@ -117,7 +117,7 @@ This is what makes the watcher start without you asking. Append:
 ## Slack bridge — start the watcher at session start
 
 This project is wired to Slack through the MCP server at
-`D:\MCP-tools\Claude-Code-Slack-Channel` (channel `C0...`).
+`/path/to/claude-code-slack-bridge` (channel `C0...`).
 
 **At the start of every session, before anything else, start the mention
 watcher.** Without it, Slack messages are written to the inbox correctly and
@@ -128,7 +128,7 @@ Run the `slack-watch` skill, or start it directly:
 
 ```
 Monitor({
-  command: 'node "D:/MCP-tools/Claude-Code-Slack-Channel/watch-mentions.mjs" --config "<project path>/.mcp.json"',
+  command: 'node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project path>/.mcp.json"',
   description: 'Slack @mentions for <project>',
   persistent: true,
   timeout_ms: 3600000,
@@ -171,8 +171,8 @@ start.
 
    ```
    Server:  connected to Slack, pid 41580, up 59s
-   Channel: C0C17J47NLW   Project: 2FA_app
-   Bot:     U0C17G82RHR
+   Channel: C01ABCDEFGH   Project: your-project
+   Bot:     U0BOT123456
    Watcher: RUNNING, pid 34632          ← this line
    Unread in this channel: 0
    Streaming: on (tool detail: none)
@@ -208,7 +208,7 @@ the question.
 ### The watcher, from a terminal
 
 ```bash
-node "D:/MCP-tools/Claude-Code-Slack-Channel/watch-mentions.mjs" --config "<project>/.mcp.json"
+node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project>/.mcp.json"
 ```
 
 The bot id and channel are read out of that config. Overrides:
@@ -222,7 +222,7 @@ inbox.
 ### Housekeeping
 
 ```bash
-cd D:/MCP-tools/Claude-Code-Slack-Channel && npm test      # 234 tests
+cd /path/to/claude-code-slack-bridge && npm test      # 234 tests
 ```
 
 ---

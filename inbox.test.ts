@@ -6,7 +6,7 @@ import * as path from 'path'
 
 import { Inbox, mentionsBot, stripMention, isFromPerson, rotateIfLarge, type Mention } from './inbox.js'
 
-const BOT = 'U0C17G82RHR'
+const BOT = 'U0BOT123456'
 
 function tempInbox(): Inbox {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-inbox-test-'))
@@ -14,7 +14,7 @@ function tempInbox(): Inbox {
 }
 
 function mention(ts: string, text: string): Mention {
-    return { ts, channel: 'C0C17J47NLW', user: 'U039JKT10SY', text, received_at: new Date().toISOString() }
+    return { ts, channel: 'C01ABCDEFGH', user: 'U0USER12345', text, received_at: new Date().toISOString() }
 }
 
 test('mentionsBot', async (t) => {
@@ -31,7 +31,7 @@ test('mentionsBot', async (t) => {
     })
 
     await t.test('ignores somebody else being mentioned', () => {
-        assert.equal(mentionsBot('<@U039JKT10SY> can you look', BOT), false)
+        assert.equal(mentionsBot('<@U0USER12345> can you look', BOT), false)
     })
 
     await t.test('never matches when the bot id is unknown', () => {
@@ -84,7 +84,7 @@ test('stripMention', async (t) => {
     })
 
     await t.test('leaves other mentions alone', () => {
-        assert.equal(stripMention(`<@${BOT}> ask <@U039JKT10SY>`, BOT), 'ask <@U039JKT10SY>')
+        assert.equal(stripMention(`<@${BOT}> ask <@U0USER12345>`, BOT), 'ask <@U0USER12345>')
     })
 
     await t.test('collapses a mention-only message to empty', () => {
