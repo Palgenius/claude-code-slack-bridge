@@ -201,7 +201,7 @@ Slack ──socket──► webhook.ts ──► slack-inbox-<channel>.jsonl
 npm test
 ```
 
-234 tests over eight modules using the Node test runner through `tsx` — no test
+236 tests over eight modules using the Node test runner through `tsx` — no test
 dependencies. `slackRich.ts` takes `fetch` and `fs` as injected dependencies, so
 the Slack call sequences are checked without a workspace.
 

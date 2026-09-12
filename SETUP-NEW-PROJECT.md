@@ -222,7 +222,7 @@ inbox.
 ### Housekeeping
 
 ```bash
-cd /path/to/claude-code-slack-bridge && npm test      # 234 tests
+cd /path/to/claude-code-slack-bridge && npm test      # 236 tests
 ```
 
 ---
