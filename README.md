@@ -84,11 +84,123 @@ recommendation rather than a fact about the code, the docs say so.
 
 ---
 
+## Creating the Slack app
+
+Do this once per workspace. It takes about five minutes. Every step is in the
+Slack app settings at <https://api.slack.com/apps>.
+
+### 1. Create the app
+
+**Create New App** → **From scratch** → give it a name (this is what people will
+`@mention`, e.g. `claude`) → pick your workspace → **Create App**.
+
+### 2. Turn on Socket Mode
+
+Left sidebar → **Socket Mode** → toggle **Enable Socket Mode** on.
+
+It asks for a token name — anything, e.g. `socket`. It then shows a token
+starting with **`xapp-`**.
+
+> **Copy it now.** This is your `SLACK_APP_TOKEN` and Slack will not show it
+> again. If you lose it, generate a new one under **Basic Information →
+> App-Level Tokens**.
+
+### 3. Add the bot scopes
+
+Left sidebar → **OAuth & Permissions** → scroll to **Scopes** → **Bot Token
+Scopes** → **Add an OAuth Scope** for each:
+
+| Scope | Needed for |
+| --- | --- |
+| `chat:write` | Posting and editing messages — **required** |
+| `chat:delete` | Moving the status line to the bottom without leaving the old one behind |
+| `channels:history` | Reading messages in **public** channels |
+| `groups:history` | Reading messages in **private** channels |
+| `im:history` | Reading direct messages to the bot |
+| `files:read` | Downloading images and files people send |
+| `files:write` | Uploading images and files |
+| `reactions:write` | The 👀 / ✅ marks on your message |
+| `canvases:write` | Creating canvases |
+| `pins:write` | Only if you set `SLACK_STATUS_PIN=1` |
+
+**Add nothing else.** This token ends up in a config file on your machine, so
+every extra scope is something it can do if it leaks. In particular you need no
+**User Token Scopes** at all — everything runs on the bot token.
+
+### 4. Subscribe to message events
+
+Left sidebar → **Event Subscriptions** → toggle **Enable Events** on.
+
+There is **no Request URL to fill in** — Socket Mode replaces it. Ignore that box.
+
+Open **Subscribe to bot events** and add:
+
+| Event | For |
+| --- | --- |
+| `message.channels` | Public channels |
+| `message.groups` | Private channels |
+| `message.im` | Direct messages |
+
+Then **Save Changes** at the bottom of the page. It is easy to miss.
+
+### 5. Let people DM the bot
+
+Left sidebar → **App Home** → scroll to **Show Tabs** → turn the **Messages
+Tab** on, and tick **"Allow users to send Slash commands and messages from the
+messages tab."**
+
+> Skip this and the DM box is **read-only** — you cannot even type to the bot.
+> The scope and the event from the previous steps are not enough on their own,
+> and nothing about the failure points at this setting.
+
+Only needed for DMs. Channels work without it.
+
+### 6. Install it
+
+Left sidebar → **Install App** → **Install to Workspace** → **Allow**.
+
+You now get a **Bot User OAuth Token** starting with **`xoxb-`**. This is your
+`SLACK_BOT_TOKEN`.
+
+> ⚠️ **Every time you change a scope after this, come back and click
+> "Reinstall to Workspace"** (a yellow banner appears at the top). A new scope
+> does nothing until you do. The usual symptom is a `403` with an HTML page
+> where a file should be.
+
+### 7. Invite the bot to your channel
+
+In Slack itself, in the channel you want to use:
+
+```
+/invite @YourBotName
+```
+
+Without this the bot receives nothing from that channel, whatever scopes it has.
+
+### 8. Get the channel ID
+
+Right-click the channel in the sidebar → **View channel details** → scroll to
+the bottom. The ID starts with **`C`**, e.g. `C01ABCDEFGH`. This is your
+`SLACK_CHANNEL_ID`.
+
+*(It is also the last part of the channel's URL in the browser version.)*
+
+### You should now have three values
+
+```
+SLACK_APP_TOKEN   xapp-…   from step 2
+SLACK_BOT_TOKEN   xoxb-…   from step 6
+SLACK_CHANNEL_ID  C…       from step 8
+```
+
+The two tokens are **not** interchangeable. Swapping them gives
+`not_allowed_token_type` on every send, which is a confusing error to debug.
+
+---
+
 ## Quick start
 
-**1. Create a Slack app** ([full steps](SETUP-NEW-PROJECT.md)) — Socket Mode on,
-an app token (`xapp-`), a bot token (`xoxb-`), the scopes listed in the setup
-guide, and `/invite @YourBot` to the channel.
+**1. Create the Slack app** — the eight steps above.
 
 **2. Install:**
 
