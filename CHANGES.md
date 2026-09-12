@@ -1,3 +1,22 @@
+## 2026-09-13 (why the watcher kept dying)
+
+- Root cause found for three evenings' worth of "inbound is broken": the
+  watcher was being started as a **Bash background task**, which is capped at
+  ten minutes. A non-persistent Monitor is capped at five. The watcher polls
+  forever, so whichever bounded mechanism started it killed it part-way through
+  the session -- and from then on messages kept arriving in the inbox correctly
+  while nothing surfaced them.
+
+  Every symptom pointed somewhere else each time: a stale watcher on the wrong
+  inbox file, then no watcher at all, then messages that had plainly been
+  delivered with no reply. The mechanism was never the config; it was the
+  lifetime.
+
+  The only thing that lasts a whole session is `Monitor` with
+  `persistent: true`, which the tool documents as running until the session
+  ends. The server's instructions now give that exact call and say explicitly
+  not to use Bash `run_in_background` or a bounded Monitor.
+
 ## 2026-09-13 (starting the watcher)
 
 - The watcher reads the bot id and the channel out of `--config`, so the whole

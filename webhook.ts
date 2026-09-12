@@ -255,8 +255,9 @@ const mcp = new Server(
             // The command is spelled out in full because one that has to be
             // assembled by hand is one that does not get run.
             'IMPORTANT — inbound delivery needs a watcher, and it does not start itself.',
-            'Early in the session, start it once as a BACKGROUND task (it polls forever, so do not run it in the foreground):',
-            `\`node "${path.join(HERE, 'watch-mentions.mjs').replace(/\\/g, '/')}" --channel ${OWN_CHANNEL || '<channel id>'} --config "${path.join(process.cwd(), '.mcp.json').replace(/\\/g, '/')}"\``,
+            'Start it early in the session with the **Monitor** tool and `persistent: true`, which is the only mechanism that survives a whole session:',
+            `Monitor({ command: 'node "${path.join(HERE, 'watch-mentions.mjs').replace(/\\/g, '/')}" --config \\'${path.join(process.cwd(), '.mcp.json').replace(/\\/g, '/')}\\'', description: 'Slack @mentions for this project', persistent: true, timeout_ms: 3600000 })`,
+            'Do NOT start it with Bash run_in_background, and do NOT use a Monitor without `persistent: true`: both are bounded (10 minutes and 5 minutes respectively) and the watcher polls forever, so it is killed mid-session and inbound goes silently dead. That has already happened three times.',
             'It should print `watching for @… in C…`; a WARNING block instead means it is reading the wrong inbox.',
             'If one is already running for this session, do not start a second.',
             'Until it runs, incoming Slack messages pile up unread and this session will never hear about them — `check_slack_inbox` is the manual fallback.',

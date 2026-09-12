@@ -103,11 +103,27 @@ command that has to be assembled by hand is one that does not get run — which
 is exactly what kept happening. `--channel` still overrides, and a bot id can
 still be passed as the first argument.
 
-**It does not start itself, and nothing else will start it.** Without it a Slack
-message is written to the inbox correctly and then nothing surfaces it: the
-session sees silence indistinguishable from nobody having written. The MCP
-server now spells the command out in its own `instructions`, so Claude is told
-to start it at the beginning of each session.
+**Start it with Monitor and `persistent: true`. Nothing else survives.**
+
+```
+Monitor({
+  command: 'node ".../watch-mentions.mjs" --config "<project>/.mcp.json"',
+  description: 'Slack @mentions for this project',
+  persistent: true,
+  timeout_ms: 3600000,
+})
+```
+
+A Bash background task is capped at ten minutes and a non-persistent Monitor at
+five. The watcher polls forever, so either one is killed part-way through a
+session and inbound goes silently dead -- messages keep landing in the inbox
+correctly and nothing surfaces them, which looks exactly like nobody having
+written. That failure happened three times in one evening before the cause was
+found, each time looking like a fresh bug somewhere else.
+
+**It does not start itself.** The MCP server spells the Monitor call out in its
+own `instructions`, so Claude is told how to start it at the beginning of every
+session rather than anyone having to remember.
 
 `--config` is only used to read the bot token for downloading attachments; it
 is read from the file so the token never appears in a command line. It also
