@@ -38,6 +38,44 @@ const inbox = new Inbox(HERE, OWN_CHANNEL)
 const boards = new ProgressStore()
 
 /**
+ * A heartbeat file, so the mention watcher can tell this session is still alive.
+ *
+ * Windows has no process-group kill: when a Claude session dies, nothing
+ * signals its descendants, and the spawn chain is five processes deep
+ * (claude -> cmd -> npx -> cmd -> tsx -> node). The only thing that reaches
+ * the bottom is stdin closing, and that only works for a process that is
+ * *reading* stdin -- this server is, through the MCP transport, which is why
+ * it now exits with its session.
+ *
+ * `watch-mentions.mjs` is not: it runs with stdin at /dev/null and polls on a
+ * timer, so nothing ever tells it to stop and every session used to leave one
+ * behind, still polling and still downloading attachments. It watches this
+ * file instead and exits when the beat stops.
+ *
+ * Never deleted on the way out, deliberately: a missing file would otherwise
+ * be ambiguous between "the server stopped" and "no server has ever run for
+ * this channel". Letting it go stale says the first unambiguously.
+ */
+const ALIVE_FILE = path.join(
+    HERE, `slack-alive${OWN_CHANNEL ? `-${OWN_CHANNEL.replace(/[^A-Za-z0-9_-]/g, '')}` : ''}.json`)
+const ALIVE_INTERVAL_MS = 15_000
+let aliveTimer: NodeJS.Timeout | undefined
+
+function beat() {
+    try {
+        // Written to one side and renamed, so a reader can never catch the
+        // file empty mid-write and mistake it for a server that has stopped.
+        const temp = `${ALIVE_FILE}.${process.pid}.tmp`
+        fs.writeFileSync(temp, JSON.stringify({
+            pid: process.pid, channel: OWN_CHANNEL, at: Date.now(),
+        }))
+        fs.renameSync(temp, ALIVE_FILE)
+    } catch {
+        // A heartbeat that cannot be written must not take the bridge down.
+    }
+}
+
+/**
  * Inboxes for channels that are not ours, opened as they are needed.
  *
  * Slack hands each message to one randomly chosen connection, so a server
@@ -585,6 +623,8 @@ async function shutdown(why: string) {
     stopping = true
     diskLog(`Shutting down: ${why}`)
     if (streamTimer) clearInterval(streamTimer)
+    // Stopped, not deleted: the watcher reads staleness, not absence.
+    if (aliveTimer) clearInterval(aliveTimer)
     try {
         await app.stop()
     } catch (error) {
@@ -920,6 +960,10 @@ function startStreaming(channel: string) {
 app.start().then(() => {
     diskLog('APP STARTED: ⚡️ Slack Socket Mode Connected Successfully!')
     console.error('⚡️ Slack MCP Receiver is running in Socket Mode!')
+
+    // Tells the mention watcher this session is still here. See ALIVE_FILE.
+    beat()
+    aliveTimer = setInterval(beat, ALIVE_INTERVAL_MS)
 
     const channel = process.env.SLACK_CHANNEL_ID
     if (process.env.SLACK_STREAM === '1' && channel) {

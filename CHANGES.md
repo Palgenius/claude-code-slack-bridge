@@ -1,3 +1,38 @@
+## 2026-09-12 (orphans)
+
+- **Why orphans happen, established by experiment rather than reading.**
+  Windows has no process-group kill: when a Claude session dies nothing signals
+  its descendants, and the spawn chain is five deep --
+  `claude -> cmd -> npx -> cmd -> tsx -> node`. The one signal that does reach
+  the bottom is stdin closing.
+
+  Two runs of the same spawn chain, killing the parent the way a crashed
+  session would:
+
+  | Child | Result |
+  | --- | --- |
+  | no stdin reader | survived indefinitely, no shutdown |
+  | MCP `StdioServerTransport` reading stdin | `SHUTDOWN: stdin end`, exited in about a second |
+
+  So `webhook.ts` is genuinely fixed: the MCP transport reads stdin, which is
+  what makes the handler fire. The orphan found on this machine started before
+  that fix landed.
+
+- **`watch-mentions.mjs` was the unfixed case, and it is the worse one.** It
+  runs with stdin at `/dev/null` and polls on a timer, so nothing ever tells it
+  to stop: every session left one behind, still polling every two seconds and
+  still downloading attachments, for as long as the machine stayed up. One had
+  been running for three hours.
+
+  The server now writes a heartbeat file, and the watcher exits when the beat
+  stops. The server's own lifetime is already tied to the session, so its
+  heartbeat is a reliable proxy. The file is never deleted on shutdown --
+  absence would be ambiguous between "the server stopped" and "no server has
+  ever run for this channel", where staleness says the first unambiguously --
+  and it is written to one side and renamed, so a reader cannot catch it empty
+  mid-write and exit for no reason. The watcher acts on it only after seeing
+  one live beat, so a watcher started before its server does not exit at once.
+
 ## 2026-09-12 (multi-project fixes)
 
 Found by looking at a machine actually running two projects against one Slack

@@ -118,6 +118,45 @@ const INBOXES = [
 ]
 const LOGS = [path.join(HERE, 'slack-debug.log'), ...EXTRA_LOGS]
 
+/**
+ * Stop when the session that started this is gone.
+ *
+ * Nothing tells this script to exit. Windows has no process-group kill, the
+ * spawn chain is five processes deep, and it runs with stdin at /dev/null --
+ * so the one signal that does reach a Claude Code child, stdin closing, never
+ * arrives here. Every session used to leave a watcher behind, still polling
+ * every two seconds and still downloading attachments, for as long as the
+ * machine stayed up.
+ *
+ * The MCP server does exit with its session (its stdin is the MCP transport),
+ * so its heartbeat file is a reliable proxy for the session being alive.
+ *
+ * Only ever acted on after a live beat has been seen: without that, a watcher
+ * started before its server -- or for a channel with no server at all -- would
+ * exit immediately.
+ */
+const ALIVE = key ? path.join(HERE, `slack-alive-${key}.json`) : ''
+const STALE_MS = 60_000
+let sawHeartbeat = false
+
+function sessionGone() {
+    if (!ALIVE) return false
+    let beat = null
+    try {
+        beat = JSON.parse(fs.readFileSync(ALIVE, 'utf8'))
+    } catch {
+        // Missing, or unreadable. If a beat was seen before, the file being
+        // gone means the server went with it.
+        return sawHeartbeat
+    }
+    const age = Date.now() - Number(beat?.at || 0)
+    if (age < STALE_MS) {
+        sawHeartbeat = true
+        return false
+    }
+    return sawHeartbeat
+}
+
 // Only ever read the tail. These files grow without bound and re-reading a
 // large log every couple of seconds would be the slowest thing here.
 const TAIL_BYTES = 512 * 1024
@@ -254,7 +293,13 @@ let running = false
 async function tick() {
     if (running) return
     running = true
-    try { await poll() } catch (err) { console.error(`[watch-mentions] ${err.message}`) }
+    try {
+        if (sessionGone()) {
+            console.error('[watch-mentions] the Slack server for this channel has stopped; exiting rather than becoming an orphan')
+            process.exit(0)
+        }
+        await poll()
+    } catch (err) { console.error(`[watch-mentions] ${err.message}`) }
     finally { running = false }
 }
 
