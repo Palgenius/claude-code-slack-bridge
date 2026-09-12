@@ -1136,7 +1136,12 @@ function startStreaming(channel: string) {
             lastCard = ''
 
             if (trigger) {
-                await react({ token: token(), channel: trigger.channel, ts: trigger.ts, emoji: 'eyes' })
+                const marked = await react({
+                    token: token(), channel: trigger.channel, ts: trigger.ts, emoji: 'eyes',
+                })
+                // Logged either way. A reaction that silently never appears is
+                // the same invisible failure as everything else here.
+                if (!marked.ok) diskLog(`could not mark the message seen: ${marked.detail}`)
             }
             return
         }
@@ -1169,11 +1174,13 @@ function startStreaming(channel: string) {
             // watched. The reply itself is the record.
             if (cardTs) await paint(renderTurn(event.turn), true)
             if (trigger) {
-                await react({
+                const done = await react({
                     token: token(), channel: trigger.channel, ts: trigger.ts,
                     emoji: event.turn.errors > 0 ? 'warning' : 'white_check_mark',
                     remove: ['eyes'],
                 })
+                if (!done.ok) diskLog(`could not mark the message answered: ${done.detail}`)
+                else diskLog(`marked ${trigger.ts} answered`)
             }
             cardTs = ''
             trigger = null
