@@ -63,8 +63,8 @@ recommendation rather than a fact about the code, the docs say so.
 - A **live turn card** that ticks with elapsed time, tool count and tokens, then
   collapses to the list of files the turn changed
 - **`slack_progress`** — a checklist kept to one self-rewriting message
-- A **presence line** per channel: 🟢 connected / ⚪ offline, one message edited in
-  place rather than a notice per restart
+- A **presence line** per channel: 🟢 connected / ⚪ offline — exactly one message,
+  moved to the bottom of the channel when it changes so it is never buried
 - **`slack_status`** — one call answers "is this actually working?"
 
 **Not losing things**

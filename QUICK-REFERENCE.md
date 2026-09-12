@@ -29,6 +29,7 @@ messages pile up unread.
 | Watcher running, still nothing | Its first line — a `WARNING` block means wrong inbox |
 | Replies landing in the other project | Two projects, one Slack app. Expected; late not lost. |
 | Channel says 🟢 but nothing responds | Orphaned server, or watcher died. `slack_status`. |
+| Two status lines in the channel | The bot token is missing `chat:delete`, so the old one could not be removed |
 | Nothing has ever worked | Bot not invited / scope added without **Reinstall** / tokens swapped |
 
 ---

@@ -11,7 +11,10 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 import { Inbox, mentionsBot, stripMention, isFromPerson, rotateIfLarge } from './inbox.js'
-import { uploadFile, createCanvas, postMessage, updateMessage, react } from './slackRich.js'
+import {
+    uploadFile, createCanvas, postMessage, updateMessage,
+    react, deleteMessage, pinMessage,
+} from './slackRich.js'
 import { findTranscript, TranscriptTailer } from './transcript.js'
 import { TurnTracker, renderTurn, type ToolDetail } from './turn.js'
 import {
@@ -68,14 +71,29 @@ let aliveTimer: NodeJS.Timeout | undefined
 /**
  * The channel's status line: one message saying whether anything is listening.
  *
- * Rewritten rather than reposted, and the timestamp is kept on disk so a
- * restart edits the same message instead of adding another. Off with
- * SLACK_ANNOUNCE=0 for a channel where it is not wanted.
+ * Exactly one, whichever mode is in use -- the timestamp is kept on disk so a
+ * restart finds the line it posted last time rather than adding another. Off
+ * with SLACK_ANNOUNCE=0 for a channel where it is not wanted.
  */
 const status = new StatusStore(HERE, OWN_CHANNEL)
 const PROJECT = projectName()
 const ANNOUNCE = process.env.SLACK_ANNOUNCE !== '0' && Boolean(OWN_CHANNEL)
 const connectedAt = Date.now()
+
+/**
+ * Where the status line should live.
+ *
+ * `bottom` (the default) keeps exactly one status message and moves it to the
+ * end of the channel whenever it changes. `edit` rewrites it where it is.
+ *
+ * Editing in place was the original choice, to avoid a notice per restart. It
+ * had a cost nobody saw until the channel had a day of history in it: the line
+ * stays at the timestamp it was first posted, so it slides up out of view and
+ * you have to scroll back through the conversation to find out whether
+ * anything is listening. A status you have to go looking for is not a status.
+ */
+const STATUS_MODE = process.env.SLACK_STATUS_MODE === 'edit' ? 'edit' : 'bottom'
+const STATUS_PIN = process.env.SLACK_STATUS_PIN === '1'
 
 async function announce(online: boolean) {
     if (!ANNOUNCE) return
@@ -86,28 +104,49 @@ async function announce(online: boolean) {
     })
 
     const existing = status.read()
-    if (existing) {
-        const edited = await updateMessage({
-            token: token(), channel: OWN_CHANNEL, ts: existing.ts, text, mrkdwn: false,
-        })
-        if (edited.ok) {
-            status.write({ ts: existing.ts, online, since: connectedAt })
-            return
+
+    if (STATUS_MODE === 'edit') {
+        if (existing) {
+            const edited = await updateMessage({
+                token: token(), channel: OWN_CHANNEL, ts: existing.ts, text, mrkdwn: false,
+            })
+            if (edited.ok) {
+                status.write({ ts: existing.ts, online, since: connectedAt })
+                return
+            }
+            diskLog(`status edit failed (${edited.detail}); posting a fresh line`)
         }
-        // Usually the message was deleted, or this is a different channel from
-        // the one the timestamp was saved for. Fall through and post a new one.
-        diskLog(`status edit failed (${edited.detail}); posting a fresh line`)
+        if (!online) return
     }
 
-    // Never post a fresh "offline" line: there is nothing useful in announcing
-    // a departure nobody saw arrive, and a shutdown should not leave litter.
-    if (!online) return
-
+    // Post the new line first, then remove the old one. In that order there is
+    // never a moment where the channel has no status at all -- and if the
+    // delete fails for want of `chat:delete`, the visible outcome is a stale
+    // line above a correct one rather than no line.
     const posted = await postMessage({
         token: token(), channel: OWN_CHANNEL, text, mrkdwn: false,
     })
-    if (posted.ok && posted.id) status.write({ ts: posted.id, online: true, since: connectedAt })
-    else diskLog(`status post failed: ${posted.detail}`)
+    if (!posted.ok || !posted.id) {
+        diskLog(`status post failed: ${posted.detail}`)
+        return
+    }
+
+    if (existing && existing.ts !== posted.id) {
+        const removed = await deleteMessage({
+            token: token(), channel: OWN_CHANNEL, ts: existing.ts,
+        })
+        if (!removed.ok) {
+            diskLog(`could not remove the previous status line (${removed.detail})`
+                + ' — the bot token may be missing the chat:delete scope')
+        }
+    }
+
+    if (STATUS_PIN) {
+        const pinned = await pinMessage({ token: token(), channel: OWN_CHANNEL, ts: posted.id })
+        if (!pinned.ok) diskLog(`could not pin the status line (${pinned.detail}) — needs pins:write`)
+    }
+
+    status.write({ ts: posted.id, online, since: connectedAt })
 }
 
 /**

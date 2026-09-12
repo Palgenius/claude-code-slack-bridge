@@ -163,6 +163,58 @@ export async function updateMessage(
 }
 
 /**
+ * Delete a message this bot posted.
+ *
+ * Used to keep the status line to exactly one message while still moving it to
+ * the bottom of the channel: post the new one, then remove the old. In that
+ * order, so there is never a moment with no status at all.
+ *
+ * Scope: chat:delete.
+ */
+export async function deleteMessage(
+    opts: { token: string, channel: string, ts: string },
+    deps: Deps = realDeps
+): Promise<Result> {
+    if (!opts.ts) return { ok: false, detail: 'ts is required' }
+
+    const res = await callApi(deps, opts.token, 'chat.delete', {
+        channel: opts.channel, ts: opts.ts,
+    })
+    if (!res?.ok) {
+        // message_not_found means somebody already deleted it, which is the
+        // outcome wanted. Anything else is worth reporting.
+        if (res?.error === 'message_not_found') {
+            return { ok: true, detail: 'already gone' }
+        }
+        return { ok: false, detail: `chat.delete failed: ${res?.error || 'unknown'}` }
+    }
+    return { ok: true, detail: `deleted ${opts.ts}` }
+}
+
+/**
+ * Pin a message to the channel.
+ *
+ * A pinned status line is reachable from the channel's pinned items no matter
+ * how far the conversation has moved on. `already_pinned` is a success.
+ *
+ * Scope: pins:write.
+ */
+export async function pinMessage(
+    opts: { token: string, channel: string, ts: string },
+    deps: Deps = realDeps
+): Promise<Result> {
+    if (!opts.ts) return { ok: false, detail: 'ts is required' }
+
+    const res = await callApi(deps, opts.token, 'pins.add', {
+        channel: opts.channel, timestamp: opts.ts,
+    })
+    if (!res?.ok && res?.error !== 'already_pinned') {
+        return { ok: false, detail: `pins.add failed: ${res?.error || 'unknown'}` }
+    }
+    return { ok: true, detail: `pinned ${opts.ts}` }
+}
+
+/**
  * Put a reaction on a message, taking a previous one off first.
  *
  * This is what makes the channel legible at a glance: your own message shows

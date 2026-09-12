@@ -1,3 +1,26 @@
+## 2026-09-13 (a status line you can actually see)
+
+- The status line moves to the bottom of the channel when it changes, instead
+  of being rewritten where it was first posted.
+
+  Editing in place was chosen to avoid a notice per restart, and the cost did
+  not show up until the channel had a day of history in it: the line keeps the
+  timestamp it was first posted at, so it slides up out of view. Ours ended up
+  at 23:59 with four hours of conversation below it -- to find out whether
+  anything was listening you had to scroll back past the whole day. A status
+  you have to go looking for is not a status.
+
+  Exactly one line either way. The new one is posted *before* the old is
+  deleted, so there is never a moment with no status at all, and a failed
+  delete leaves a stale line above a correct one rather than nothing.
+
+  `SLACK_STATUS_MODE=edit` restores the old behaviour. `SLACK_STATUS_PIN=1`
+  also pins it, which is the other way to keep it reachable.
+
+- New scopes for this: `chat:delete` to remove the previous line, and
+  `pins:write` only if pinning is turned on. Both degrade to a log line rather
+  than an error if the scope is missing.
+
 ## 2026-09-13 (two blocks, one answer)
 
 - **Prose mirroring is off by default now.** With `SLACK_STREAM=1` every answer

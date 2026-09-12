@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
     uploadFile, createCanvas, postMessage, updateMessage, react,
-    MAX_UPLOAD_BYTES, MAX_TEXT, type Deps,
+    deleteMessage, pinMessage, MAX_UPLOAD_BYTES, MAX_TEXT, type Deps,
 } from './slackRich.js'
 
 const TOKEN = 'xoxb-test'
@@ -400,5 +400,61 @@ test('react', async (t) => {
         const r = await react({ token: TOKEN, channel: CHANNEL, ts: '', emoji: 'eyes' }, deps)
         assert.equal(r.ok, false)
         assert.deepEqual(calls, [])
+    })
+})
+
+test('deleteMessage', async (t) => {
+    await t.test('removes the message', async () => {
+        const { deps, calls, bodies } = fakeSlack({ 'chat.delete': { ok: true } })
+        const r = await deleteMessage({ token: TOKEN, channel: CHANNEL, ts: '1789.001' }, deps)
+
+        assert.equal(r.ok, true)
+        assert.deepEqual(calls, ['chat.delete'])
+        assert.equal(bodies['chat.delete'].ts, '1789.001')
+    })
+
+    await t.test('already gone counts as success', async () => {
+        // The outcome wanted is "that message is not there", and it is not.
+        const { deps } = fakeSlack({ 'chat.delete': { ok: false, error: 'message_not_found' } })
+        const r = await deleteMessage({ token: TOKEN, channel: CHANNEL, ts: '1' }, deps)
+        assert.equal(r.ok, true)
+    })
+
+    await t.test('reports a missing scope rather than pretending', async () => {
+        // Without chat:delete the old status line stays put, and the channel
+        // ends up with two. Worth saying so in the log.
+        const { deps } = fakeSlack({ 'chat.delete': { ok: false, error: 'missing_scope' } })
+        const r = await deleteMessage({ token: TOKEN, channel: CHANNEL, ts: '1' }, deps)
+        assert.equal(r.ok, false)
+        assert.match(r.detail, /missing_scope/)
+    })
+
+    await t.test('refuses without a ts', async () => {
+        const { deps, calls } = fakeSlack({})
+        assert.equal((await deleteMessage({ token: TOKEN, channel: CHANNEL, ts: '' }, deps)).ok, false)
+        assert.deepEqual(calls, [])
+    })
+})
+
+test('pinMessage', async (t) => {
+    await t.test('pins it', async () => {
+        const { deps, calls, bodies } = fakeSlack({ 'pins.add': { ok: true } })
+        const r = await pinMessage({ token: TOKEN, channel: CHANNEL, ts: '1789.001' }, deps)
+
+        assert.equal(r.ok, true)
+        assert.deepEqual(calls, ['pins.add'])
+        assert.equal(bodies['pins.add'].timestamp, '1789.001')
+    })
+
+    await t.test('already pinned counts as success', async () => {
+        const { deps } = fakeSlack({ 'pins.add': { ok: false, error: 'already_pinned' } })
+        assert.equal((await pinMessage({ token: TOKEN, channel: CHANNEL, ts: '1' }, deps)).ok, true)
+    })
+
+    await t.test('reports a missing scope', async () => {
+        const { deps } = fakeSlack({ 'pins.add': { ok: false, error: 'missing_scope' } })
+        const r = await pinMessage({ token: TOKEN, channel: CHANNEL, ts: '1' }, deps)
+        assert.equal(r.ok, false)
+        assert.match(r.detail, /missing_scope/)
     })
 })

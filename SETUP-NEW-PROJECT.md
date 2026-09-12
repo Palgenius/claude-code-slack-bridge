@@ -50,6 +50,8 @@ Do this once per workspace, not per project.
    | `files:write` | uploading images and files |
    | `canvases:write` | creating canvases |
    | `reactions:write` | the 👀 / ✅ lifecycle on the asker's message |
+   | `chat:delete` | moving the status line to the bottom without leaving the old one |
+   | `pins:write` | pinning the status line (only with `SLACK_STATUS_PIN=1`) |
 
 4. **Event Subscriptions** → on → subscribe to bot events `message.channels`,
    `message.groups`, `message.im`. **Save Changes.**
@@ -107,6 +109,8 @@ Optional extras:
 | `SLACK_STREAM=1` | Mirror Claude's side of the session into the channel — see §5 |
 | `SLACK_STREAM_TOOLS` | `0` nothing, `1` tool names, `detail` name + a safe target |
 | `SLACK_ANNOUNCE=0` | Do not post the 🟢/⚪ status line |
+| `SLACK_STATUS_MODE` | `bottom` (default) reposts the status line at the end of the channel when it changes; `edit` rewrites it where it is |
+| `SLACK_STATUS_PIN=1` | Also pin the status line |
 | `SLACK_PROJECT_NAME` | Name shown on the status line (default: the folder name) |
 
 ### 2.2 A section in the project's `CLAUDE.md`
