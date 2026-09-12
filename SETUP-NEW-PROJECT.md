@@ -50,7 +50,6 @@ Do this once per workspace, not per project.
    | `files:write` | uploading images and files |
    | `canvases:write` | creating canvases |
    | `reactions:write` | the 👀 / ✅ lifecycle on the asker's message |
-   | `chat:delete` | moving the status line to the bottom without leaving the old one |
    | `pins:write` | pinning the status line (only with `SLACK_STATUS_PIN=1`) |
 
 4. **Event Subscriptions** → on → subscribe to bot events `message.channels`,

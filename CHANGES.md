@@ -17,9 +17,13 @@
   `SLACK_STATUS_MODE=edit` restores the old behaviour. `SLACK_STATUS_PIN=1`
   also pins it, which is the other way to keep it reachable.
 
-- New scopes for this: `chat:delete` to remove the previous line, and
-  `pins:write` only if pinning is turned on. Both degrade to a log line rather
-  than an error if the scope is missing.
+- No new scope is needed to remove the previous line: `chat.delete` runs on
+  `chat:write`, which the bot already has. `pins:write` is needed only if
+  pinning is turned on, and degrades to a log line if it is missing.
+
+  (An earlier draft of this entry claimed a `chat:delete` scope. There is no
+  such scope -- checked against Slack's own reference for the method, which
+  lists `chat:write` for both bot and user tokens.)
 
 ## 2026-09-13 (two blocks, one answer)
 

@@ -121,8 +121,8 @@ async function announce(online: boolean) {
 
     // Post the new line first, then remove the old one. In that order there is
     // never a moment where the channel has no status at all -- and if the
-    // delete fails for want of `chat:delete`, the visible outcome is a stale
-    // line above a correct one rather than no line.
+    // delete fails, the visible outcome is a stale line above a correct one
+    // rather than no line.
     const posted = await postMessage({
         token: token(), channel: OWN_CHANNEL, text, mrkdwn: false,
     })
@@ -137,7 +137,7 @@ async function announce(online: boolean) {
         })
         if (!removed.ok) {
             diskLog(`could not remove the previous status line (${removed.detail})`
-                + ' — the bot token may be missing the chat:delete scope')
+                + ' — the channel will show the old one above the new')
         }
     }
 

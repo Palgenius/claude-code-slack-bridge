@@ -113,7 +113,6 @@ Scopes** → **Add an OAuth Scope** for each:
 | Scope | Needed for |
 | --- | --- |
 | `chat:write` | Posting and editing messages — **required** |
-| `chat:delete` | Moving the status line to the bottom without leaving the old one behind |
 | `channels:history` | Reading messages in **public** channels |
 | `groups:history` | Reading messages in **private** channels |
 | `im:history` | Reading direct messages to the bot |

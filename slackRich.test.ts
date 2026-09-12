@@ -421,7 +421,7 @@ test('deleteMessage', async (t) => {
     })
 
     await t.test('reports a missing scope rather than pretending', async () => {
-        // Without chat:delete the old status line stays put, and the channel
+        // When the delete fails the old status line stays put and the channel
         // ends up with two. Worth saying so in the log.
         const { deps } = fakeSlack({ 'chat.delete': { ok: false, error: 'missing_scope' } })
         const r = await deleteMessage({ token: TOKEN, channel: CHANNEL, ts: '1' }, deps)

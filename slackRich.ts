@@ -169,7 +169,9 @@ export async function updateMessage(
  * the bottom of the channel: post the new one, then remove the old. In that
  * order, so there is never a moment with no status at all.
  *
- * Scope: chat:delete.
+ * Scope: chat:write -- the same one posting uses. There is no `chat:delete`
+ * scope; Slack's reference for the method lists `chat:write` for both bot and
+ * user tokens.
  */
 export async function deleteMessage(
     opts: { token: string, channel: string, ts: string },
