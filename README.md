@@ -105,8 +105,6 @@ claude  ᴀᴘᴘ 11:31
 
 ---
 
----
-
 ## Why this exists
 
 Claude Code delivers `notifications/claude/channel` **only** when the session was
