@@ -64,8 +64,17 @@ export function renderPresence(p: Presence, now: number = Date.now()): string {
     ].join('\n')
 }
 
+export interface StatusRecord {
+    /** Timestamp of the Slack message holding this channel's status line. */
+    ts: string
+    /** What that message currently says. */
+    online: boolean
+    /** When the session behind it connected. */
+    since: number
+}
+
 /**
- * Remembers which message is this channel's status line.
+ * Remembers which message is this channel's status line, and what it says.
  *
  * On disk rather than in memory, because the whole point is to survive the
  * restart -- an in-memory timestamp would post a fresh message every time,
@@ -76,23 +85,16 @@ export class StatusStore {
     readonly file: string
 
     constructor(dir: string, channel: string) {
-        const key = String(channel || '').replace(/[^A-Za-z0-9_-]/g, '')
-        this.file = path.join(dir, `slack-status${key ? `-${key}` : ''}.json`)
+        this.file = path.join(dir, `slack-status${statusSuffix(channel)}.json`)
     }
 
-    /** The timestamp of the status message, or '' if there is not one yet. */
-    read(): string {
-        try {
-            const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'))
-            return typeof saved?.ts === 'string' ? saved.ts : ''
-        } catch {
-            return ''
-        }
+    read(): StatusRecord | null {
+        return readStatusFile(this.file)
     }
 
-    write(ts: string): void {
+    write(record: StatusRecord): void {
         try {
-            fs.writeFileSync(this.file, JSON.stringify({ ts, at: Date.now() }))
+            fs.writeFileSync(this.file, JSON.stringify(record))
         } catch {
             // Losing this costs one duplicated status message on the next
             // start, which is not worth failing a startup over.
@@ -102,6 +104,86 @@ export class StatusStore {
     clear(): void {
         try { fs.rmSync(this.file) } catch { /* already gone */ }
     }
+}
+
+function statusSuffix(channel: string): string {
+    const key = String(channel || '').replace(/[^A-Za-z0-9_-]/g, '')
+    return key ? `-${key}` : ''
+}
+
+function readStatusFile(file: string): StatusRecord | null {
+    try {
+        const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+        if (typeof saved?.ts !== 'string' || !saved.ts) return null
+        return {
+            ts: saved.ts,
+            online: saved.online !== false,
+            since: Number(saved.since) || 0,
+        }
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Channels whose status line still claims to be online but whose server has
+ * stopped beating.
+ *
+ * The offline line is normally written by the process that is shutting down,
+ * which covers a session being closed -- but not a force-kill, a crash, or the
+ * machine losing power. In those cases nothing runs, and the channel keeps
+ * saying "connected" indefinitely. That is the worst failure this has: a green
+ * line that is wrong is more damaging than no line at all, because it is the
+ * one thing someone checks before deciding the silence means Claude is busy.
+ *
+ * So no process is trusted to announce its own death. Any *live* server sweeps
+ * for abandoned lines and corrects them -- they all share this directory, so
+ * whichever session is running can clean up after the ones that are not.
+ *
+ * A status file with no heartbeat beside it counts as abandoned: only a
+ * version that writes heartbeats writes status files, so the absence means the
+ * server is gone rather than that it is old.
+ */
+export function findAbandoned(dir: string, opts: {
+    now?: number
+    staleMs?: number
+    skip?: string
+} = {}): { channel: string, status: StatusRecord }[] {
+    const now = opts.now ?? Date.now()
+    const staleMs = opts.staleMs ?? 60_000
+    const skip = String(opts.skip || '').replace(/[^A-Za-z0-9_-]/g, '')
+
+    let names: string[]
+    try {
+        names = fs.readdirSync(dir)
+    } catch {
+        return []
+    }
+
+    const out: { channel: string, status: StatusRecord }[] = []
+
+    for (const name of names) {
+        const found = /^slack-status-([A-Za-z0-9_-]+)\.json$/.exec(name)
+        if (!found) continue
+
+        const channel = found[1]
+        if (channel === skip) continue
+
+        const status = readStatusFile(path.join(dir, name))
+        if (!status || !status.online) continue
+
+        let beatAt = 0
+        try {
+            const beat = JSON.parse(fs.readFileSync(path.join(dir, `slack-alive-${channel}.json`), 'utf8'))
+            beatAt = Number(beat?.at) || 0
+        } catch {
+            beatAt = 0 // no heartbeat at all: the server is gone
+        }
+
+        if (now - beatAt >= staleMs) out.push({ channel, status })
+    }
+
+    return out
 }
 
 /**

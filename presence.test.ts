@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-import { renderPresence, formatUptime, StatusStore, projectName } from './presence.js'
+import { renderPresence, formatUptime, StatusStore, projectName, findAbandoned } from './presence.js'
 
 const tempDir = (tag: string) => fs.mkdtempSync(path.join(os.tmpdir(), `presence-${tag}-`))
 
@@ -54,44 +54,111 @@ test('StatusStore', async (t) => {
         // The whole point: an in-memory timestamp would post a new status
         // message on every start, which is what this exists to avoid.
         const dir = tempDir('roundtrip')
-        new StatusStore(dir, 'C0AAA').write('1789.001')
-        assert.equal(new StatusStore(dir, 'C0AAA').read(), '1789.001')
+        new StatusStore(dir, 'C0AAA').write({ ts: '1789.001', online: true, since: 5 })
+        assert.deepEqual(new StatusStore(dir, 'C0AAA').read(),
+            { ts: '1789.001', online: true, since: 5 })
     })
 
-    await t.test('reads empty before anything is written', () => {
-        assert.equal(new StatusStore(tempDir('empty'), 'C0AAA').read(), '')
+    await t.test('reads null before anything is written', () => {
+        assert.equal(new StatusStore(tempDir('empty'), 'C0AAA').read(), null)
     })
 
     await t.test('keeps two channels apart', () => {
         const dir = tempDir('two')
-        new StatusStore(dir, 'C0AAA').write('1.1')
-        new StatusStore(dir, 'C0BBB').write('2.2')
-        assert.equal(new StatusStore(dir, 'C0AAA').read(), '1.1')
-        assert.equal(new StatusStore(dir, 'C0BBB').read(), '2.2')
+        new StatusStore(dir, 'C0AAA').write({ ts: '1.1', online: true, since: 1 })
+        new StatusStore(dir, 'C0BBB').write({ ts: '2.2', online: false, since: 2 })
+        assert.equal(new StatusStore(dir, 'C0AAA').read()?.ts, '1.1')
+        assert.equal(new StatusStore(dir, 'C0BBB').read()?.ts, '2.2')
     })
 
-    await t.test('a corrupt file reads as empty rather than throwing', () => {
+    await t.test('a corrupt file reads as nothing rather than throwing', () => {
         // It would otherwise take down startup, which is a bad trade for a
         // decorative line in a channel.
         const dir = tempDir('corrupt')
         const store = new StatusStore(dir, 'C0AAA')
         fs.writeFileSync(store.file, 'not json at all')
-        assert.equal(store.read(), '')
+        assert.equal(store.read(), null)
     })
 
     await t.test('clear forgets the message', () => {
         const dir = tempDir('clear')
         const store = new StatusStore(dir, 'C0AAA')
-        store.write('1.1')
+        store.write({ ts: '1.1', online: true, since: 1 })
         store.clear()
-        assert.equal(store.read(), '')
+        assert.equal(store.read(), null)
     })
 
     await t.test('the channel is sanitised before it reaches the filesystem', () => {
         const dir = tempDir('nasty')
         const store = new StatusStore(dir, '../../etc/passwd')
         assert.equal(path.dirname(store.file), dir)
-        assert.doesNotMatch(path.basename(store.file), /[\\/.]{2}/)
+        assert.doesNotMatch(path.basename(store.file), /[\/.]{2}/)
+    })
+})
+
+test('findAbandoned', async (t) => {
+    const NOW = 1_000_000
+
+    /** A channel with a status line, and optionally a heartbeat beside it. */
+    function channel(dir: string, id: string, opts: { online: boolean, beatAt?: number }) {
+        fs.writeFileSync(path.join(dir, `slack-status-${id}.json`),
+            JSON.stringify({ ts: `ts-${id}`, online: opts.online, since: NOW - 60_000 }))
+        if (opts.beatAt !== undefined) {
+            fs.writeFileSync(path.join(dir, `slack-alive-${id}.json`),
+                JSON.stringify({ pid: 1, channel: id, at: opts.beatAt }))
+        }
+    }
+
+    await t.test('finds a channel whose server stopped beating', () => {
+        // The force-kill case: no shutdown handler ran, so the line still says
+        // connected and nothing has corrected it.
+        const dir = tempDir('stale')
+        channel(dir, 'C0DEAD', { online: true, beatAt: NOW - 300_000 })
+
+        const found = findAbandoned(dir, { now: NOW })
+        assert.equal(found.length, 1)
+        assert.equal(found[0].channel, 'C0DEAD')
+        assert.equal(found[0].status.ts, 'ts-C0DEAD')
+    })
+
+    await t.test('leaves a live server alone', () => {
+        const dir = tempDir('live')
+        channel(dir, 'C0LIVE', { online: true, beatAt: NOW - 5_000 })
+        assert.deepEqual(findAbandoned(dir, { now: NOW }), [])
+    })
+
+    await t.test('a status file with no heartbeat at all counts as abandoned', () => {
+        // Only a version that writes heartbeats writes status files, so the
+        // absence means the server is gone, not that it is an old build.
+        const dir = tempDir('noheart')
+        channel(dir, 'C0GONE', { online: true })
+        assert.equal(findAbandoned(dir, { now: NOW }).length, 1)
+    })
+
+    await t.test('ignores a line already marked offline', () => {
+        // Otherwise every sweep rewrites the same message forever.
+        const dir = tempDir('already')
+        channel(dir, 'C0DONE', { online: false, beatAt: NOW - 300_000 })
+        assert.deepEqual(findAbandoned(dir, { now: NOW }), [])
+    })
+
+    await t.test('skips our own channel', () => {
+        // This server is alive by definition; its own line is its own business.
+        const dir = tempDir('self')
+        channel(dir, 'C0SELF', { online: true, beatAt: NOW - 300_000 })
+        assert.deepEqual(findAbandoned(dir, { now: NOW, skip: 'C0SELF' }), [])
+    })
+
+    await t.test('sorts nothing else in the directory into the result', () => {
+        const dir = tempDir('noise')
+        fs.writeFileSync(path.join(dir, 'slack-inbox-C0AAA.jsonl'), '{}\n')
+        fs.writeFileSync(path.join(dir, 'slack-debug.log'), 'hello')
+        fs.writeFileSync(path.join(dir, 'slack-status.json'), '{"ts":"x","online":true}')
+        assert.deepEqual(findAbandoned(dir, { now: NOW }), [])
+    })
+
+    await t.test('a directory that is not there is not an error', () => {
+        assert.deepEqual(findAbandoned(path.join(os.tmpdir(), 'no-such-dir-xyz'), { now: NOW }), [])
     })
 })
 

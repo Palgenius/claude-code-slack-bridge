@@ -164,6 +164,14 @@ every line is stale the moment the next arrives and none of them tells you the
 current state. The timestamp is kept on disk so a restart finds its own message
 and edits it.
 
+**A crash is covered too.** Writing "offline" on the way out only works when
+something gets to run -- a force-kill, a crash or a power cut runs no handler,
+and the line would claim to be listening forever. So no process is trusted to
+announce its own death: every running server sweeps for status lines whose
+heartbeat has stopped and corrects them, for any project, since they all share
+one directory. The only window where a green line can lie is when *nothing at
+all* is running; the next session to start closes it.
+
 Without this a quiet channel and a dead one look identical — you write, nothing
 answers, and the bridge being down is indistinguishable from Claude being busy.
 The project name comes from the working directory, or `SLACK_PROJECT_NAME`.

@@ -1,3 +1,27 @@
+## 2026-09-13
+
+- The status line no longer depends on the dying process to tell the truth.
+
+  Writing "offline" during shutdown covers a session being closed -- stdin
+  closing does reach the server -- but it covers nothing else. A force-kill, a
+  crash or the machine losing power runs no handler at all, and the channel
+  then claims to be listening indefinitely. That is the worst failure this
+  feature has: a green line that is wrong is more damaging than no line,
+  because it is the one thing somebody checks before deciding the silence means
+  Claude is busy rather than absent.
+
+  So no process is trusted to announce its own death. Every server sweeps, on
+  each heartbeat, for status lines that still say connected while the
+  corresponding heartbeat has stopped, and corrects them. They all share one
+  directory, so whichever session happens to be running cleans up after the
+  ones that are not -- including for projects it knows nothing about. A status
+  file with no heartbeat beside it counts as abandoned, since only a version
+  that writes heartbeats writes status files.
+
+  The swept line is recorded as offline whether or not the edit succeeded,
+  because a message that cannot be edited must not be retried every fifteen
+  seconds for the life of the session.
+
 ## 2026-09-12 (presence)
 
 - The channel now says whether anything is listening. On connecting the server

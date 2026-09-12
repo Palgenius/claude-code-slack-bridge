@@ -18,7 +18,7 @@ import {
     ProgressStore, normalizeSteps, applyPatches, advance,
     renderBoard, summarize, type Step,
 } from './progress.js'
-import { StatusStore, renderPresence, projectName } from './presence.js'
+import { StatusStore, renderPresence, projectName, findAbandoned } from './presence.js'
 
 // These files used to be written with a bare relative path, which put them in
 // whatever directory the session happened to start in rather than next to the
@@ -85,9 +85,12 @@ async function announce(online: boolean) {
     const existing = status.read()
     if (existing) {
         const edited = await updateMessage({
-            token: token(), channel: OWN_CHANNEL, ts: existing, text, mrkdwn: false,
+            token: token(), channel: OWN_CHANNEL, ts: existing.ts, text, mrkdwn: false,
         })
-        if (edited.ok) return
+        if (edited.ok) {
+            status.write({ ts: existing.ts, online, since: connectedAt })
+            return
+        }
         // Usually the message was deleted, or this is a different channel from
         // the one the timestamp was saved for. Fall through and post a new one.
         diskLog(`status edit failed (${edited.detail}); posting a fresh line`)
@@ -100,8 +103,41 @@ async function announce(online: boolean) {
     const posted = await postMessage({
         token: token(), channel: OWN_CHANNEL, text, mrkdwn: false,
     })
-    if (posted.ok && posted.id) status.write(posted.id)
+    if (posted.ok && posted.id) status.write({ ts: posted.id, online: true, since: connectedAt })
     else diskLog(`status post failed: ${posted.detail}`)
+}
+
+/**
+ * Correct any channel whose line still says "connected" but whose server is
+ * gone.
+ *
+ * No process is trusted to announce its own death: a force-kill, a crash or a
+ * power cut runs no handler at all, and the channel then claims to be
+ * listening indefinitely. A green line that is wrong is worse than no line,
+ * because it is the one thing somebody checks before deciding that silence
+ * means Claude is busy rather than absent.
+ *
+ * Every server shares this directory, so whichever session happens to be
+ * running cleans up after the ones that are not -- including for projects it
+ * knows nothing about.
+ */
+async function sweepAbandoned() {
+    if (!ANNOUNCE) return
+
+    for (const { channel, status: record } of findAbandoned(HERE, { skip: OWN_CHANNEL })) {
+        const text = renderPresence({
+            project: '', online: false,
+            since: record.since || Date.now(),
+            until: Date.now(),
+        })
+        const edited = await updateMessage({
+            token: token(), channel, ts: record.ts, text, mrkdwn: false,
+        })
+        // Recorded either way: a line that cannot be edited (deleted message,
+        // lost scope) must not be retried every fifteen seconds forever.
+        new StatusStore(HERE, channel).write({ ...record, online: false })
+        diskLog(`swept abandoned status line for ${channel}: ${edited.detail}`)
+    }
 }
 
 function beat() {
@@ -1019,10 +1055,15 @@ app.start().then(() => {
 
     // Tells the mention watcher this session is still here. See ALIVE_FILE.
     beat()
-    aliveTimer = setInterval(beat, ALIVE_INTERVAL_MS)
+    aliveTimer = setInterval(() => {
+        beat()
+        // Also clean up after any session that died without saying so.
+        void sweepAbandoned().catch((error) => diskLog(`status sweep failed: ${error}`))
+    }, ALIVE_INTERVAL_MS)
 
     // Say so in the channel, so a quiet channel can be told from a dead one.
     void announce(true).catch((error) => diskLog(`status announce failed: ${error}`))
+    void sweepAbandoned().catch((error) => diskLog(`status sweep failed: ${error}`))
 
     const channel = process.env.SLACK_CHANNEL_ID
     if (process.env.SLACK_STREAM === '1' && channel) {
