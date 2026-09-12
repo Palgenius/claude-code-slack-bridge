@@ -65,6 +65,23 @@ If messages aren't arriving:
 
 ---
 
+## Documentation
+
+| File | |
+| --- | --- |
+| **`QUICK-REFERENCE.md`** | One page. The session ritual, what to check when Slack goes quiet, every tool and command. **Start here.** |
+| **`SETUP-NEW-PROJECT.md`** | The full procedure for wiring a new project: Slack app setup, `.mcp.json`, the `CLAUDE.md` section, troubleshooting in the order that finds the problem fastest. |
+| `SLACK_MCP_INTEGRATION.md` | Why the design is what it is — the capability gate, Socket Mode load-balancing, the transcript format. Reference, not procedure. |
+| `CHANGES.md` | Dated log of every change and the reasoning behind it. |
+
+**The one thing to know:** there are two processes and only one starts by
+itself. The MCP server starts with the session; the mention watcher does not,
+and without it incoming Slack messages are written to the inbox correctly and
+nothing ever surfaces them. Run `slack_status` whenever Slack seems quiet — the
+`Watcher:` line is almost always the answer.
+
+---
+
 # Local modifications (12 September 2026)
 
 This copy has been changed. `webhook.ts.bak-20260912-183246` is the original.

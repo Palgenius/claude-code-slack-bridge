@@ -1,3 +1,32 @@
+## 2026-09-13 (documentation, and the watcher starting itself)
+
+- Added `SETUP-NEW-PROJECT.md` and `QUICK-REFERENCE.md`, and a pointer to both
+  from the README.
+
+  `QUICK-REFERENCE.md` is one page: the session ritual, a symptom-to-cause
+  table for when Slack goes quiet, how to read `slack_status`, the tools, the
+  terminal commands, and the log lines worth recognising. `SETUP-NEW-PROJECT.md`
+  is the full procedure for a new project, including the Slack app scopes, the
+  `.mcp.json`, the `CLAUDE.md` section, and troubleshooting in the order that
+  finds the problem fastest.
+
+  Both lead with the thing that actually goes wrong: there are two processes
+  and only one starts by itself. Every other piece can be working perfectly
+  while inbound is dead.
+
+- Added the Slack section to both live projects' `CLAUDE.md`. That file is read
+  every session and acted on far more reliably than the MCP server's
+  `instructions`, which sit in the system prompt and need a reason to be acted
+  on -- proven tonight, when both sessions came up with the watcher down
+  despite the instructions telling Claude to start it.
+
+- Verified live, end to end, for the first time: a mention reached the session
+  in about two seconds and was answered in-thread; a message for the other
+  project was routed through the per-channel inbox and answered by the session
+  that owned it; the turn card rendered `Done, 15s, 1 tool, 1.7k tokens`; and
+  `slack_status` correctly reported `watcher=down` before it was started and
+  `watcher=up` after.
+
 ## 2026-09-13 (a way to ask)
 
 - Added the `slack_status` tool. Until now the only way to answer "is Slack
