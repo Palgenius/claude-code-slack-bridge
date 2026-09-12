@@ -2,3 +2,14 @@ node_modules/
 slack-debug.log
 .env
 .DS_Store
+
+# Runtime state, written next to the server. Local to this machine and
+# occasionally carrying message text, so none of it belongs in the repository.
+slack-debug.log.1
+slack-inbox.jsonl
+slack-inbox.jsonl.1
+slack-inbox.cursor
+attachments/
+
+# Backups kept while editing.
+*.bak-*

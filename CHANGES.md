@@ -1,0 +1,159 @@
+## 2026-09-12 (later)
+
+- Added `slack_progress`: a checklist kept to one message that rewrites itself
+  as the work moves. Post it once with `steps`, then move it with
+  `advance: true` between stages or `update: [{step, status}]` for a specific
+  one, where `step` is an index or any substring of that step's text. Pending
+  and active share an icon on purpose -- the bold on the active line is what
+  separates "running" from "waiting", and reads at a glance in a way two
+  similar icons do not.
+
+  `advance` exists because the commonest way to get a board wrong is marking a
+  step done and forgetting to start the next one, which leaves the checklist
+  looking stalled. Boards live in memory keyed by `ts`; if the server has
+  restarted the tool says so and asks for the full list rather than rewriting
+  the message with a board that has silently lost its history.
+
+- Added `mrkdwn.ts`: Claude writes GitHub-flavoured markdown and Slack renders
+  the difference literally, so every message this bot sent was arriving with
+  its asterisks showing and `[text](url)` spelled out in full. Code is parked
+  before any rule runs and restored at the end -- a converter that rewrites the
+  asterisks inside a code sample is worse than no converter.
+
+- Replies go into threads. `thread_ts` is carried through the inbox, the
+  watcher and the channel notification, and every sending tool takes one. An
+  answer now sits under the question instead of at the top of the channel.
+
+- A long message is split rather than truncated. Cutting at 3900 characters
+  kept the message and lost the conclusion. It now splits on line boundaries,
+  never inside a fenced code block -- an unclosed fence renders the rest of the
+  channel as code -- and threads the continuation off the first part so a long
+  answer stays one item in the channel. An edit still truncates: there is only
+  one message to rewrite.
+
+- Direct messages work, with `im:history` and the `message.im` event. A DM is
+  addressed to the bot by definition; requiring an `@mention` in one is asking
+  someone to say a name into an empty room. `SLACK_CHANNEL_ID` does not filter
+  them out, since that setting is about which channel to listen in and a DM is
+  not one.
+
+- Stripping the `@mention` no longer flattens the message. It ran `\s+` over
+  the whole text, so a pasted stack trace, numbered list or code block reached
+  Claude as one run-on line. Only the space around the removed token is
+  collapsed now.
+
+- The inbox deduplicates by `ts`. Socket Mode redelivers on reconnect and
+  several instances append at once, so the same message genuinely lands in the
+  file twice -- and `check_slack_inbox` was handing Claude the same instruction
+  twice in a row.
+
+- The server exits when its session does, on stdin closing, SIGTERM/SIGINT, or
+  the MCP transport closing. An orphan kept its Slack socket and Slack
+  load-balanced messages onto a dead pipe, where they vanished with no error
+  anywhere; the documented fix was to hunt the process down by hand.
+
+- Missing or swapped tokens are named at startup. The first symptom used to be
+  `invalid_auth` on a tool call or a socket that simply never connected,
+  neither of which says which variable was left out of the config.
+
+- The log and the inbox rotate at 4MB, keeping one generation. Both were
+  append-only with no bound. `Inbox.all()` reads the rotated generation too, so
+  rotating cannot drop a mention nobody had read yet.
+
+- The stream queue is bounded at 200 blocks. A busy session writes faster than
+  Slack accepts for as long as it runs, so an unbounded queue ends up narrating
+  something that finished ten minutes ago. The oldest are dropped and the count
+  is posted. `SLACK_STREAM_THREAD` puts the whole stream in one thread.
+
+- `npm test` was running two of the three test files, so the redaction tests --
+  the ones guarding against posting a secret to a channel -- were not running
+  on `npm test` at all. Now 153 tests across five modules.
+
+- `.gitignore` now covers the inbox, the cursor, `attachments/`, the rotated
+  logs and `*.bak-*`. The inbox and five downloaded images were sitting
+  untracked in the repository, one `git add .` from being committed.
+
+## 2026-09-12
+
+- Added line-by-line streaming of Claude's own messages into the channel,
+  **off by default** behind `SLACK_STREAM=1`.
+
+  Claude Code has no outbound channel: `notifications/claude/channel` carries
+  Slack to Claude and has no counterpart going back, confirmed by searching the
+  binary. But it writes the whole session to
+  `~/.claude/projects/<project>/<session-id>.jsonl` as it goes, so following
+  that file achieves the same thing without the platform needing a feature. The
+  session id comes from `CLAUDE_CODE_SESSION_ID`, so this works in any project
+  with no per-project setup.
+
+  `transcript.ts` enforces two rules structurally rather than by a later
+  filter: `thinking` blocks have no path to the output at all, and everything
+  else is redacted on the way out -- `pass=`, Slack tokens, connection strings,
+  bearer headers, private keys, long hex runs. This matters because Claude's
+  prose quotes files and command output: during the session this was built in,
+  it printed a database password from an Apache config, and an unredacted
+  streamer would have posted it to the channel. Verified against the real
+  transcript: the password is present in the file and absent from the output.
+
+  Off by default deliberately. Forwarding a session transcript to an external
+  service is a decision for whoever owns the workspace, made in their own
+  config -- not something switched on by whoever wrote the code.
+
+  Posts are queued and drained at roughly one per second, because that is
+  chat.postMessage's rate limit per channel and one reply can hold several
+  blocks.
+
+- Added `update_slack_message`, and `send_slack_message` now returns the
+  message timestamp. Together they give a live status marker: post "working on
+  X", rewrite that same message as the work moves, rewrite it once more when it
+  is done. One line in the channel that changes, rather than a scroll of
+  half-finished progress reports -- which is what asking for a "Claude is
+  working" indicator actually needs.
+
+  `send_slack_message` is routed through `postMessage` in slackRich now rather
+  than calling app.client directly, so it comes back with the timestamp and so
+  an over-long message is truncated. Slack rejects anything past 4000
+  characters outright, losing the whole message rather than the tail.
+
+- Incoming Slack messages never reached Claude. The server was not at fault:
+  it forwarded every one correctly. Claude Code delivers
+  `notifications/claude/channel` only when its session was started with
+  `--channels`, which the Claude desktop app does not pass, so a capability
+  gate accepted each notification and dropped it — with no error in this log,
+  in Slack, or on screen. Proven by a run where the log read
+  `Received: 4 / Forwarded: 4 / EPIPE: 0 / MCP Error: 0` while none of the four
+  messages arrived.
+
+  Mentions are now also appended to `slack-inbox.jsonl`, and
+  `watch-mentions.mjs` turns each new one into a line on stdout. Run under a
+  Claude Code Monitor, every line becomes an event in the session, which is how
+  a Slack message reaches Claude without the flag. The watcher also reads an
+  older instance's `slack-debug.log`, so it works while a session started
+  before this change is still running.
+
+- Only messages that `@mention` the bot are collected, so the channel stays
+  usable for ordinary conversation without waking Claude.
+
+- Fixed the subtype filter. The original skipped only `bot_message`, so
+  huddle-started and message-edited events were forwarded with empty text.
+  Blanket-skipping every subtype was worse and briefly shipped: it threw away
+  every message with an image attached, because those arrive as `file_share`.
+  `file_share` and `thread_broadcast` are now kept — both are a person typing.
+
+- Added `check_slack_inbox`, `send_slack_image` and `create_slack_canvas`.
+  Uploading is the three-step `getUploadURLExternal` → PUT →
+  `completeUploadExternal` sequence, because `files.upload` is deprecated and
+  now refuses. A canvas tries the channel canvas first and falls back to a
+  standalone one shared into the channel, since a channel holds only one.
+
+- Anchored `slack-debug.log` and the inbox to this directory. They were written
+  with bare relative paths, so they landed in whatever directory the session
+  happened to start in.
+
+- Added 42 tests over `inbox.ts` and `slackRich.ts` via the Node test runner
+  through `tsx`, with no new dependencies. `webhook.ts` opens a socket as soon
+  as it is imported, so the logic worth testing was moved into those two
+  modules. `slackRich.ts` takes `fetch` and `fs` as injected dependencies so
+  the call sequences can be checked without a Slack workspace.
+
+- The original server is kept as `webhook.ts.bak-20260912-183246`.
