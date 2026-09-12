@@ -1,3 +1,33 @@
+## 2026-09-13 (a way to ask)
+
+- Added the `slack_status` tool. Until now the only way to answer "is Slack
+  actually working?" was to read `slack-debug.log` by hand and cross-reference
+  a process list -- which is why a dead watcher went unnoticed three separate
+  times while every individual piece was working correctly.
+
+  It reports the one thing that actually breaks, first and unambiguously:
+
+  ```
+  Server: connected to Slack, pid 43888
+  Channel: C0C17J47NLW   Project: 2FA_app
+  Bot: U0C17G82RHR
+  Watcher: NOT RUNNING - not running
+    (warning explaining that nothing is delivering messages to this session)
+  Unread in this channel: 1
+  Streaming: on (tool detail: none)
+  Other channels on this Slack app (they share message delivery at random):
+    C0C2952A1CY: server up, watcher down
+  ```
+
+  The other-channels section is there because two projects on one Slack app
+  compete for every incoming message, and that is rarely front of mind when
+  something looks broken.
+
+- The watcher now publishes its own heartbeat (`slack-watcher-<channel>.json`)
+  alongside the server's. Between the two, "is anything connected" and "is
+  anything listening" are separate, answerable questions rather than one
+  inference from a log.
+
 ## 2026-09-13 (why the watcher kept dying)
 
 - Root cause found for three evenings' worth of "inbound is broken": the

@@ -4,7 +4,10 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-import { renderPresence, formatUptime, StatusStore, projectName, findAbandoned } from './presence.js'
+import {
+    renderPresence, formatUptime, StatusStore, projectName, findAbandoned,
+    readBeat, writeBeat, beatHealth, beatFile,
+} from './presence.js'
 
 const tempDir = (tag: string) => fs.mkdtempSync(path.join(os.tmpdir(), `presence-${tag}-`))
 
@@ -178,5 +181,53 @@ test('projectName', async (t) => {
 
     await t.test('ignores a blank override', () => {
         assert.equal(projectName({ SLACK_PROJECT_NAME: '   ' }, 'E:/x/Radars'), 'Radars')
+    })
+})
+
+test('heartbeats', async (t) => {
+    const NOW = 1_000_000
+
+    await t.test('round-trips through a file', () => {
+        const dir = tempDir('beat')
+        writeBeat(dir, 'watcher', 'C0AAA', 4242)
+        const beat = readBeat(dir, 'watcher', 'C0AAA')
+        assert.equal(beat?.pid, 4242)
+        assert.equal(beat?.channel, 'C0AAA')
+    })
+
+    await t.test('server and watcher do not share a file', () => {
+        // They answer different questions: is anything connected, and is
+        // anything listening. Conflating them hides the second.
+        const dir = tempDir('kinds')
+        writeBeat(dir, 'server', 'C0AAA', 1)
+        writeBeat(dir, 'watcher', 'C0AAA', 2)
+        assert.equal(readBeat(dir, 'server', 'C0AAA')?.pid, 1)
+        assert.equal(readBeat(dir, 'watcher', 'C0AAA')?.pid, 2)
+    })
+
+    await t.test('a fresh beat reads as running', () => {
+        const health = beatHealth({ pid: 7, at: NOW - 5_000 }, { now: NOW })
+        assert.equal(health.alive, true)
+        assert.match(health.detail, /pid 7/)
+    })
+
+    await t.test('a stale beat reads as stopped, and says how long ago', () => {
+        const health = beatHealth({ pid: 7, at: NOW - 600_000 }, { now: NOW })
+        assert.equal(health.alive, false)
+        assert.match(health.detail, /10m ago/)
+        assert.match(health.detail, /stopped/)
+    })
+
+    await t.test('a missing beat reads as not running, not as an error', () => {
+        // The commonest real state: the watcher was never started.
+        const health = beatHealth(readBeat(tempDir('none'), 'watcher', 'C0AAA'), { now: NOW })
+        assert.equal(health.alive, false)
+        assert.equal(health.detail, 'not running')
+    })
+
+    await t.test('a half-written beat reads as missing rather than throwing', () => {
+        const dir = tempDir('torn')
+        fs.writeFileSync(beatFile(dir, 'server', 'C0AAA'), '{"pid":1,"at"')
+        assert.equal(readBeat(dir, 'server', 'C0AAA'), null)
     })
 })

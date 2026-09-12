@@ -64,6 +64,66 @@ export function renderPresence(p: Presence, now: number = Date.now()): string {
     ].join('\n')
 }
 
+/**
+ * A heartbeat written by a process that wants to be seen as alive.
+ *
+ * Two write them: the MCP server (`slack-alive-<channel>.json`) and the
+ * mention watcher (`slack-watcher-<channel>.json`). Between them they answer
+ * the only two questions that matter when Slack looks dead -- is anything
+ * connected, and is anything listening -- which until now could only be
+ * answered by reading a log file by hand.
+ */
+export interface Beat {
+    pid: number
+    at: number
+    channel?: string
+}
+
+export type BeatKind = 'server' | 'watcher'
+
+export function beatFile(dir: string, kind: BeatKind, channel: string): string {
+    const key = String(channel || '').replace(/[^A-Za-z0-9_-]/g, '')
+    const stem = kind === 'server' ? 'slack-alive' : 'slack-watcher'
+    return path.join(dir, `${stem}${key ? `-${key}` : ''}.json`)
+}
+
+export function writeBeat(dir: string, kind: BeatKind, channel: string, pid: number): void {
+    const file = beatFile(dir, kind, channel)
+    try {
+        // Written aside and renamed, so a reader can never catch it empty
+        // mid-write and conclude the process has stopped.
+        const temp = `${file}.${pid}.tmp`
+        fs.writeFileSync(temp, JSON.stringify({ pid, channel, at: Date.now() }))
+        fs.renameSync(temp, file)
+    } catch {
+        // A heartbeat that cannot be written must not take its process down.
+    }
+}
+
+export function readBeat(dir: string, kind: BeatKind, channel: string): Beat | null {
+    try {
+        const beat = JSON.parse(fs.readFileSync(beatFile(dir, kind, channel), 'utf8'))
+        if (typeof beat?.at !== 'number') return null
+        return { pid: Number(beat.pid) || 0, at: beat.at, channel: beat.channel }
+    } catch {
+        return null
+    }
+}
+
+/** How a heartbeat reads to a person: fresh, stale, or never seen. */
+export function beatHealth(beat: Beat | null, opts: { now?: number, staleMs?: number } = {}):
+    { alive: boolean, detail: string } {
+    const now = opts.now ?? Date.now()
+    const staleMs = opts.staleMs ?? 60_000
+
+    if (!beat) return { alive: false, detail: 'not running' }
+    const age = now - beat.at
+    if (age >= staleMs) {
+        return { alive: false, detail: `last seen ${formatUptime(age)} ago (pid ${beat.pid}) — stopped` }
+    }
+    return { alive: true, detail: `running, pid ${beat.pid}` }
+}
+
 export interface StatusRecord {
     /** Timestamp of the Slack message holding this channel's status line. */
     ts: string

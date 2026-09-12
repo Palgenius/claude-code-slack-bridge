@@ -103,6 +103,24 @@ command that has to be assembled by hand is one that does not get run — which
 is exactly what kept happening. `--channel` still overrides, and a bot id can
 still be passed as the first argument.
 
+**Is it actually working? Ask `slack_status`.** It answers in one call what
+previously took a log file and a process list:
+
+```
+Server: connected to Slack, pid 43888
+Channel: C0C17J47NLW   Project: 2FA_app
+Watcher: NOT RUNNING — not running
+  ⚠ Nothing is delivering Slack messages to this session…
+Unread in this channel: 1
+Other channels on this Slack app (they share message delivery at random):
+  C0C2952A1CY: server up, watcher down
+```
+
+The watcher line is the one that matters: everything else can be perfect and
+inbound is still dead without it. Both the server and the watcher publish
+heartbeat files, so "is anything connected" and "is anything listening" are
+separate questions with separate answers.
+
 **Start it with Monitor and `persistent: true`. Nothing else survives.**
 
 ```
@@ -130,7 +148,7 @@ is read from the file so the token never appears in a command line. It also
 parses an older instance's `slack-debug.log`, so it works while a session
 started before these changes is still running.
 
-**Five new tools:** `check_slack_inbox` (mentions not yet read),
+**Six new tools:** `slack_status` (below), `check_slack_inbox` (mentions not yet read),
 `send_slack_image` (upload a local file inline — `files.upload` is deprecated,
 so this is the three-step `getUploadURLExternal` → PUT → `completeUploadExternal`
 replacement), `create_slack_canvas` (markdown canvas, falling back to a

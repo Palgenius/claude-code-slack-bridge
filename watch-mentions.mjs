@@ -345,10 +345,28 @@ async function poll() {
 
 // Overlapping runs would double-report: a download can take longer than the
 // poll interval, and `seen` is only updated once a message is picked up.
+/**
+ * Publish our own heartbeat, so `slack_status` can report whether anything is
+ * listening. Without it "is Slack working?" could only be answered by reading
+ * a log file, which is how a dead watcher went unnoticed three times.
+ */
+function beat() {
+    if (!key) return
+    const file = path.join(HERE, `slack-watcher-${key}.json`)
+    try {
+        const temp = `${file}.${process.pid}.tmp`
+        fs.writeFileSync(temp, JSON.stringify({ pid: process.pid, channel: key, at: Date.now() }))
+        fs.renameSync(temp, file)
+    } catch {
+        // Never worth failing a poll over.
+    }
+}
+
 let running = false
 async function tick() {
     if (running) return
     running = true
+    beat()
     try {
         if (sessionGone()) {
             console.error('[watch-mentions] the Slack server for this channel has stopped; exiting rather than becoming an orphan')

@@ -18,7 +18,10 @@ import {
     ProgressStore, normalizeSteps, applyPatches, advance,
     renderBoard, summarize, type Step,
 } from './progress.js'
-import { StatusStore, renderPresence, projectName, findAbandoned } from './presence.js'
+import {
+    StatusStore, renderPresence, projectName, findAbandoned,
+    readBeat, beatHealth, formatUptime,
+} from './presence.js'
 
 // These files used to be written with a bare relative path, which put them in
 // whatever directory the session happened to start in rather than next to the
@@ -430,6 +433,11 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => {
                 }
             },
             {
+                name: 'slack_status',
+                description: 'Check whether the Slack bridge is actually working end to end: is this server connected, is the mention watcher running (without it nothing inbound reaches this session), how many messages are waiting, and what other projects are connected to the same Slack app. Call this first whenever Slack seems unresponsive, or after starting a session, instead of guessing.',
+                inputSchema: { type: 'object', properties: {} }
+            },
+            {
                 name: 'check_slack_inbox',
                 description: 'Read Slack messages that @mentioned the bot and have not been read yet. Use this when the session cannot receive channel notifications (started without --channels), or to catch up on anything missed. Each message comes back with its channel id, so you can reply with send_slack_message.',
                 inputSchema: {
@@ -600,6 +608,49 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [{ type: 'text', text: `Board updated: ${summarize(steps)}${missed}` }],
             ...(patched.missed.length > 0 ? { isError: true } : {}),
         }
+    }
+
+    if (request.params.name === 'slack_status') {
+        const lines: string[] = []
+        const unread = inbox.unread().length
+
+        lines.push(`Server: connected to Slack, pid ${process.pid}`
+            + `, up ${formatUptime(Date.now() - connectedAt)}`)
+        lines.push(`Channel: ${OWN_CHANNEL || '(none configured — listening everywhere)'}`
+            + `${PROJECT ? `   Project: ${PROJECT}` : ''}`)
+        lines.push(`Bot: ${botUserId || 'UNRESOLVED — mentions cannot be matched'}`)
+
+        // The one that actually matters. Everything else can be perfect and
+        // inbound is still dead without this.
+        const watcher = beatHealth(readBeat(HERE, 'watcher', OWN_CHANNEL))
+        lines.push(`Watcher: ${watcher.alive ? 'RUNNING' : 'NOT RUNNING'} — ${watcher.detail}`)
+        if (!watcher.alive) {
+            lines.push('  ⚠ Nothing is delivering Slack messages to this session. They will collect')
+            lines.push('    in the inbox unread. Start it with the Monitor tool and persistent: true')
+            lines.push('    (see this server\'s instructions), or use check_slack_inbox to read manually.')
+        }
+
+        lines.push(`Unread in this channel: ${unread}`)
+        lines.push(`Streaming: ${process.env.SLACK_STREAM === '1' ? `on (tool detail: ${toolDetail()})` : 'off'}`)
+
+        // Other projects on the same Slack app, because they compete for every
+        // incoming message and that is rarely front of mind when debugging.
+        const others: string[] = []
+        for (const file of fs.readdirSync(HERE)) {
+            const found = /^slack-alive-([A-Za-z0-9_-]+)\.json$/.exec(file)
+            if (!found || found[1] === OWN_CHANNEL) continue
+            const health = beatHealth(readBeat(HERE, 'server', found[1]))
+            const theirWatcher = beatHealth(readBeat(HERE, 'watcher', found[1]))
+            others.push(`  ${found[1]}: server ${health.alive ? 'up' : 'down'}`
+                + `, watcher ${theirWatcher.alive ? 'up' : 'down'}`)
+        }
+        if (others.length > 0) {
+            lines.push('Other channels on this Slack app (they share message delivery at random):')
+            lines.push(...others)
+        }
+
+        diskLog(`slack_status: watcher=${watcher.alive ? 'up' : 'down'}, unread=${unread}`)
+        return { content: [{ type: 'text', text: lines.join('\n') }] }
     }
 
     if (request.params.name === 'check_slack_inbox') {
