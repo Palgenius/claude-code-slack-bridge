@@ -116,10 +116,35 @@ export class Inbox {
 
     readonly file: string
     readonly cursorFile: string
+    readonly channel: string
 
-    constructor(dir: string) {
-        this.file = path.join(dir, 'slack-inbox.jsonl')
-        this.cursorFile = path.join(dir, 'slack-inbox.cursor')
+    /**
+     * One inbox per channel.
+     *
+     * Every project points its config at the same `webhook.ts`, so every
+     * project used to share one inbox and one cursor. Two of them running at
+     * once meant whichever called `check_slack_inbox` first read the other's
+     * messages *and marked them read*, and the session they were meant for
+     * never saw them.
+     *
+     * Keyed on the channel rather than the project because the channel is what
+     * a message belongs to, and it is the one identifier both the server that
+     * receives a message and the session that wants it can agree on without
+     * being told.
+     *
+     * With no channel configured this is the old shared file, which is both
+     * the sensible behaviour for a single session listening everywhere and
+     * backwards compatible with an existing one.
+     */
+    constructor(dir: string, channel?: string) {
+        // Slack ids are already [A-Z0-9] but this string reaches the
+        // filesystem, so it is not taken on trust.
+        const key = String(channel || '').replace(/[^A-Za-z0-9_-]/g, '')
+        const suffix = key ? `-${key}` : ''
+
+        this.channel = key
+        this.file = path.join(dir, `slack-inbox${suffix}.jsonl`)
+        this.cursorFile = path.join(dir, `slack-inbox${suffix}.cursor`)
     }
 
     /**

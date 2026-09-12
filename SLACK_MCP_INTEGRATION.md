@@ -71,7 +71,12 @@ session, so:
   closes, which is what the parent exiting looks like over stdio — so an orphan
   should no longer outlive its session. §6 still covers finding one if it does.
 
-**Keep one session per Slack app.**
+**Several projects at once now work, with a caveat.** A message routed to the
+wrong server is written to the inbox of the channel it belongs to, so the
+session that owns that channel picks it up on its next `check_slack_inbox`.
+Nothing is lost — but it arrives when that session next reads, not the instant
+it is sent. Give each project its own `SLACK_CHANNEL_ID`. A broker process
+owning the single socket is the real fix.
 
 ### 0.4 Claude's messages quote secrets
 
@@ -368,6 +373,21 @@ message with a checklist that has quietly lost its history.
 
 ## 6. Troubleshooting, in the order that finds the problem fastest
 
+**Start by counting the servers.** Every line in `slack-debug.log` is tagged
+`[pid channel]`, so a pid that is still writing but whose session is gone is an
+orphan holding a socket and taking its share of your messages:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'preflight' } |
+  ForEach-Object { "{0} parent-alive={1}" -f $_.ProcessId,
+    ((Get-CimInstance Win32_Process -Filter "ProcessId=$($_.ParentProcessId)") -ne $null) }
+```
+
+A run of `EPIPE: broken pipe` in the log is the same thing seen from the other
+side: a server writing to a session that has exited.
+
+
 **Inbound silent.**
 
 1. Is the Monitor still running? A session restart kills it. *Most common cause.*
@@ -455,8 +475,9 @@ one.
 | `transcript.ts` | finding and tailing the session transcript, and redaction |
 | `watch-mentions.mjs` | the Monitor script for §3 |
 | `slack-debug.log` | everything the server did, next to the server; rotates at 4MB |
-| `slack-inbox.jsonl` | mentions, append-only; rotates at 4MB to `.jsonl.1` |
-| `slack-inbox.cursor` | how far `check_slack_inbox` has read |
+| `slack-inbox-<channel>.jsonl` | mentions for one channel, append-only; rotates at 4MB |
+| `slack-inbox-<channel>.cursor` | how far `check_slack_inbox` has read that channel |
+| `slack-inbox.jsonl` | the pre-split shared inbox; still read by the watcher |
 | `attachments/` | downloaded images |
 | `README.md` | what was changed locally in this copy, and why |
 | `CHANGES.md` | dated log of those changes |

@@ -25,8 +25,35 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const LOG_FILE = path.join(HERE, 'slack-debug.log')
 const LOG_MAX_BYTES = 4 * 1024 * 1024
-const inbox = new Inbox(HERE)
+/**
+ * This server's own channel, and its inbox.
+ *
+ * Every project points at the same `webhook.ts`, so without the channel in the
+ * name every project shared one inbox and one cursor -- and whichever session
+ * called `check_slack_inbox` first read the others' messages and marked them
+ * read. See the Inbox constructor.
+ */
+const OWN_CHANNEL = process.env.SLACK_CHANNEL_ID || ''
+const inbox = new Inbox(HERE, OWN_CHANNEL)
 const boards = new ProgressStore()
+
+/**
+ * Inboxes for channels that are not ours, opened as they are needed.
+ *
+ * Slack hands each message to one randomly chosen connection, so a server
+ * regularly receives messages for a channel another session owns. Writing them
+ * to that channel's inbox instead of dropping them is what stops them being
+ * lost -- the shared filesystem does the routing the socket would not.
+ */
+const foreignInboxes = new Map<string, Inbox>()
+function inboxFor(channel: string): Inbox {
+    let box = foreignInboxes.get(channel)
+    if (!box) {
+        box = new Inbox(HERE, channel)
+        foreignInboxes.set(channel, box)
+    }
+    return box
+}
 
 /**
  * The last message that asked for something, waiting for a turn to claim it.
@@ -38,10 +65,20 @@ const boards = new ProgressStore()
  */
 let awaitingPickup: { channel: string, ts: string, thread: string } | null = null
 
+/**
+ * Every line is tagged with the process and channel that wrote it.
+ *
+ * One log file is shared by every server on this machine -- one per project,
+ * plus any orphan still running -- and three processes interleaving into it
+ * with no way to tell them apart is why this file reads as noise. The pid also
+ * makes an orphan identifiable directly from the log rather than by walking
+ * the process tree.
+ */
 function diskLog(message: string) {
     try {
         rotateIfLarge(LOG_FILE, LOG_MAX_BYTES)
-        fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${message}\n`)
+        const tag = `${process.pid}${OWN_CHANNEL ? ` ${OWN_CHANNEL}` : ''}`
+        fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [${tag}] ${message}\n`)
     } catch {
         // Logging must never be the thing that kills the bridge.
     }
@@ -569,12 +606,17 @@ app.message(async ({ message }) => {
     // someone to say a name into an empty room.
     const isDirect = (message as any).channel_type === 'im'
 
-    // If you configured a specific channel, ignore all others! DMs are exempt
-    // -- that setting is about which channel to listen in, and a DM is not one.
-    const allowedChannel = process.env.SLACK_CHANNEL_ID
-    if (allowedChannel && message.channel !== allowedChannel && !isDirect) {
-        return // Silently ignore messages outside the configured channel
-    }
+    // Whether this message is for the channel this server was configured for.
+    // DMs are always ours -- that setting is about which channel to listen in,
+    // and a DM is not one.
+    //
+    // This used to `return` here, silently, which was the worst possible place
+    // to decide it: Slack hands each message to one randomly chosen
+    // connection, so with two projects running, roughly half of each one's
+    // messages arrived at the other server and were discarded with no record
+    // anywhere. The filtering below runs first now, and what survives it is
+    // written to the inbox of the channel it belongs to.
+    const ours = !OWN_CHANNEL || String(message.channel) === OWN_CHANNEL || isDirect
 
     // A message with a file attached arrives as `file_share`, and a reply also
     // posted to the channel as `thread_broadcast`. Both are a person typing.
@@ -583,7 +625,10 @@ app.message(async ({ message }) => {
     // subtype, which silently threw away every message with an image on it.
     const subtype = (message as any).subtype
     if (!isFromPerson(subtype)) {
-        diskLog(`Ignored subtype "${subtype}" in ${message.channel}`)
+        // Only for our own channel. Every server sees every channel's events,
+        // and the live card's own edits come back as `message_changed`, so
+        // logging all of them buries everything else.
+        if (ours) diskLog(`Ignored subtype "${subtype}" in ${message.channel}`)
         return
     }
 
@@ -595,7 +640,7 @@ app.message(async ({ message }) => {
     // The channel is also somewhere people talk to each other. Only what is
     // addressed to the bot should reach Claude. A DM always is.
     if (!isDirect && !mentionsBot(text, botUserId)) {
-        diskLog(`Ignored (no mention) from ${author}: ${text.slice(0, 40)}`)
+        if (ours) diskLog(`Ignored (no mention) from ${author}: ${text.slice(0, 40)}`)
         return
     }
 
@@ -625,6 +670,20 @@ app.message(async ({ message }) => {
         ...(isDirect ? { channel_type: 'im' } : {}),
         ...(files.length > 0 ? { files } : {}),
     }
+    // Not for us: Slack routed another session's message here. Write it to
+    // that channel's inbox so the session that owns it finds it on its next
+    // `check_slack_inbox`, and stop. Nothing else here applies -- the live
+    // view, the notification and the pickup all belong to that other session.
+    //
+    // This is the shared filesystem standing in for the routing the socket
+    // does not do. It is not instant for the other session, but it is the
+    // difference between late and lost.
+    if (!ours) {
+        inboxFor(entry.channel).append(entry)
+        diskLog(`ROUTED -> ${entry.channel} (not ours) from ${entry.user}: ${entry.text.slice(0, 40)}`)
+        return
+    }
+
     inbox.append(entry)
     diskLog(`INBOX <- ${entry.user}${isDirect ? ' (dm)' : ''}: ${entry.text.slice(0, 60)}`)
 

@@ -36,14 +36,16 @@ const BOT = process.argv[2]
 
 const rest = process.argv.slice(3)
 let CONFIG = ''
+let CHANNEL = ''
 const EXTRA_LOGS = []
 for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '--config') { CONFIG = rest[++i] || ''; continue }
+    if (rest[i] === '--channel') { CHANNEL = rest[++i] || ''; continue }
     EXTRA_LOGS.push(rest[i])
 }
 
 if (!BOT) {
-    console.error('usage: node watch-mentions.mjs <botUserId> [--config <mcp.json>] [extraLogPath ...]')
+    console.error('usage: node watch-mentions.mjs <botUserId> [--channel <C0…>] [--config <mcp.json>] [extraLogPath ...]')
     process.exit(2)
 }
 
@@ -103,7 +105,17 @@ async function download(file) {
     }
 }
 
-const INBOX = path.join(HERE, 'slack-inbox.jsonl')
+/**
+ * One inbox per channel, since every project points at the same server and
+ * used to share a single file. The legacy unsuffixed file is read as well, so
+ * a watcher started against a channel still picks up anything written before
+ * the split -- entries from other channels in it are filtered out below.
+ */
+const key = CHANNEL.replace(/[^A-Za-z0-9_-]/g, '')
+const INBOXES = [
+    ...(key ? [path.join(HERE, `slack-inbox-${key}.jsonl`)] : []),
+    path.join(HERE, 'slack-inbox.jsonl'),
+]
 const LOGS = [path.join(HERE, 'slack-debug.log'), ...EXTRA_LOGS]
 
 // Only ever read the tail. These files grow without bound and re-reading a
@@ -139,10 +151,12 @@ function stripMention(text) {
 /** Mentions already filtered by the current server. */
 function fromInbox() {
     const out = []
-    for (const line of readTail(INBOX).split('\n')) {
+    for (const line of INBOXES.flatMap((f) => readTail(f).split('\n'))) {
         if (line.trim() === '') continue
         try {
             const m = JSON.parse(line)
+            // The legacy shared file can hold other channels' messages.
+            if (key && m && m.channel && m.channel !== key) continue
             if (m && m.ts) {
                 out.push({
                     ts: String(m.ts),
@@ -177,6 +191,7 @@ function fromLogs() {
                 continue
             }
             if (!msg || !msg.ts) continue
+            if (key && msg.channel && msg.channel !== key) continue
             if (!HUMAN_SUBTYPES.has(msg.subtype)) continue
             if (msg.user === BOT) continue
             // A direct message is addressed to the bot by definition; there is
@@ -208,7 +223,7 @@ function collect() {
 // Everything already on disk is history, not news. Without this baseline the
 // first poll would replay every past mention as a fresh event.
 const seen = new Set(collect().keys())
-console.error(`[watch-mentions] watching for @${BOT}; ${seen.size} existing mention(s) ignored as history`)
+console.error(`[watch-mentions] watching for @${BOT}${key ? ` in ${key}` : ' (all channels)'}; ${seen.size} existing mention(s) ignored as history`)
 
 async function poll() {
     for (const [ts, m] of collect()) {

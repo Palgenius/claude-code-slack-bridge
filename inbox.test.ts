@@ -252,6 +252,47 @@ test('Inbox', async (t) => {
         assert.equal(back.channel_type, 'im')
     })
 
+    await t.test('two channels do not share an inbox or a cursor', () => {
+        // Every project points at the same webhook.ts, so they used to share
+        // one file: whichever session called check_slack_inbox first read the
+        // other's messages AND marked them read, and the session they were
+        // meant for never saw them.
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-two-channel-'))
+        const a = new Inbox(dir, 'C0AAA')
+        const b = new Inbox(dir, 'C0BBB')
+
+        a.append({ ...mention('800.1', 'for a'), channel: 'C0AAA' })
+        b.append({ ...mention('800.2', 'for b'), channel: 'C0BBB' })
+
+        assert.deepEqual(a.all().map((m) => m.text), ['for a'])
+        assert.deepEqual(b.all().map((m) => m.text), ['for b'])
+
+        // A reads and marks read; B must be untouched.
+        a.markRead(a.unread())
+        assert.deepEqual(a.unread(), [])
+        assert.deepEqual(b.unread().map((m) => m.text), ['for b'])
+    })
+
+    await t.test('no channel keeps the original shared filenames', () => {
+        // Backwards compatible with a single session listening everywhere, and
+        // with an inbox written before the split.
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-legacy-'))
+        const legacy = new Inbox(dir)
+
+        assert.equal(path.basename(legacy.file), 'slack-inbox.jsonl')
+        assert.equal(path.basename(legacy.cursorFile), 'slack-inbox.cursor')
+        assert.equal(legacy.channel, '')
+    })
+
+    await t.test('the channel is sanitised before it reaches the filesystem', () => {
+        // It is a Slack id in practice, but it ends up in a path.
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-nasty-'))
+        const box = new Inbox(dir, '../../etc/passwd')
+
+        assert.equal(path.dirname(box.file), dir)
+        assert.doesNotMatch(path.basename(box.file), /[\\/.]{2}/)
+    })
+
     await t.test('a rotated file keeps its unread mentions readable', () => {
         // Rotation must not quietly drop a message nobody had read yet.
         const inbox = tempInbox()

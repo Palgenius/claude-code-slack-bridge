@@ -1,3 +1,44 @@
+## 2026-09-12 (multi-project fixes)
+
+Found by looking at a machine actually running two projects against one Slack
+app, rather than by reading the code.
+
+- **One inbox and one cursor per channel.** Every project points its config at
+  the same `webhook.ts`, so `new Inbox(HERE)` resolved to the same two files
+  for all of them. Whichever session called `check_slack_inbox` first read the
+  other project's messages *and marked them read*, and the session they were
+  meant for never saw them. Keyed on the channel now, because that is the one
+  identifier the server receiving a message and the session that wants it can
+  agree on without being told.
+
+- **A message for another channel is routed, not dropped.** Slack hands each
+  message to one randomly chosen connection, so with two projects running,
+  roughly half of each one's messages arrived at the wrong server -- which
+  compared `SLACK_CHANNEL_ID`, found a mismatch, and `return`ed silently with
+  no record anywhere. The check now runs after the subtype and mention filters,
+  and what survives is appended to the inbox of the channel it belongs to. The
+  session that owns that channel finds it on its next read: late, rather than
+  lost. The shared filesystem does the routing the socket will not.
+
+  The silence was the worst part of it -- the loss rate could not even be
+  measured, because the discard path logged nothing.
+
+- **Every log line carries its pid and channel.** One log file is shared by
+  every server on the machine. Three processes interleaving into it with
+  nothing to tell them apart is why it read as noise, and it is why an orphan
+  had been running unnoticed for three hours. Subtype and no-mention lines are
+  now logged only for a server's own channel, since every server sees every
+  channel's events and the live card's own edits come back as
+  `message_changed`.
+
+- `watch-mentions.mjs` takes `--channel`, reading that channel's inbox and
+  filtering the legacy shared file by channel too.
+
+- Existing entries in the shared `slack-inbox.jsonl` were migrated into their
+  channel's file, with the cursor set past them: they are historical and had
+  already been acted on, and resurfacing them would have had a session redo
+  finished work. `check_slack_inbox` with `peek: true` still shows them.
+
 ## 2026-09-12 (live view)
 
 - The channel now shows Claude working, instead of a log being copied into it.

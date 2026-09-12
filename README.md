@@ -94,8 +94,12 @@ under a Claude Code Monitor and every line becomes an event in the session —
 which is how a Slack message reaches Claude without the flag:
 
 ```
-node watch-mentions.mjs <botUserId> --config <path to .mcp.json> [extraLogPath ...]
+node watch-mentions.mjs <botUserId> --channel <C0…> --config <path to .mcp.json> [extraLogPath ...]
 ```
+
+`--channel` picks the inbox for one channel, which is what you want when more
+than one project is running. Without it the watcher reads the shared inbox and
+reports every channel.
 
 `--config` is only used to read the bot token for downloading attachments; it
 is read from the file so the token never appears in a command line. It also
@@ -176,6 +180,27 @@ event.
 - **Line breaks survive.** Stripping the `@mention` ran `\s+` over the whole
   message, so a pasted stack trace, numbered list or code block reached Claude
   as one run-on line. Only the space around the removed token is collapsed now.
+
+- **One inbox per channel, and a cross-channel message is routed, not
+  dropped.** Every project points its config at the same `webhook.ts`, so every
+  project shared one inbox and one cursor: whichever session called
+  `check_slack_inbox` first read the others' messages *and marked them read*,
+  and the session they were meant for never saw them. The file is keyed on the
+  channel now.
+
+  The same change fixes the worse half of it. Slack hands each message to one
+  randomly chosen connection, so with two projects running, roughly half of
+  each one's messages arrived at the other server -- which checked
+  `SLACK_CHANNEL_ID`, found a mismatch and `return`ed, silently, with no record
+  anywhere. Those messages are now written to the inbox of the channel they
+  belong to, so the session that owns it finds them on its next
+  `check_slack_inbox`. Late rather than lost, with the shared filesystem doing
+  the routing the socket does not.
+
+- **Every log line carries its pid and channel.** One log file is shared by
+  every server on the machine, and three processes interleaving into it with
+  nothing to tell them apart is why it read as noise. The pid also makes an
+  orphan identifiable from the log instead of by walking the process tree.
 
 - **A repeated message is read once.** Socket Mode redelivers on reconnect and
   several instances append to the inbox at the same time, so the same message

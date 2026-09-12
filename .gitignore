@@ -9,6 +9,9 @@ slack-debug.log.1
 slack-inbox.jsonl
 slack-inbox.jsonl.1
 slack-inbox.cursor
+slack-inbox-*.jsonl
+slack-inbox-*.jsonl.1
+slack-inbox-*.cursor
 attachments/
 
 # Backups kept while editing.
