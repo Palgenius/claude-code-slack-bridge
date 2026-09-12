@@ -174,17 +174,25 @@ starting with **`xapp-`**.
 Left sidebar → **OAuth & Permissions** → scroll to **Scopes** → **Bot Token
 Scopes** → **Add an OAuth Scope** for each:
 
+**Required** — without these nothing works:
+
 | Scope | Needed for |
 | --- | --- |
-| `chat:write` | Posting and editing messages — **required** |
+| `chat:write` | Posting, editing and deleting the bot's own messages |
 | `channels:history` | Reading messages in **public** channels |
 | `groups:history` | Reading messages in **private** channels |
-| `im:history` | Reading direct messages to the bot |
-| `files:read` | Downloading images and files people send |
-| `files:write` | Uploading images and files |
-| `reactions:write` | The 👀 / ✅ marks on your message |
-| `canvases:write` | Creating canvases |
-| `pins:write` | Only if you set `SLACK_STATUS_PIN=1` |
+
+**Optional** — each one adds a feature, and skipping it costs only that
+feature. Nothing breaks; the log says what was refused:
+
+| Scope | Without it |
+| --- | --- |
+| `reactions:write` | No 👀 / ✅ marks on your message. Everything else works. |
+| `im:history` | The bot cannot be used in a DM (see step 5) |
+| `files:read` | Images and files people send cannot be downloaded |
+| `files:write` | `send_slack_image` fails |
+| `canvases:write` | `create_slack_canvas` fails |
+| `pins:write` | Only needed if you set `SLACK_STATUS_PIN=1` |
 
 **Add nothing else.** This token ends up in a config file on your machine, so
 every extra scope is something it can do if it leaks. In particular you need no

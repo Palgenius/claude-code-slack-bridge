@@ -45,11 +45,11 @@ Do this once per workspace, not per project.
    | `chat:write` | posting and editing — **required** |
    | `channels:history` | reading public channels |
    | `groups:history` | reading **private** channels |
-   | `im:history` | direct messages to the bot |
-   | `files:read` | downloading images people send |
-   | `files:write` | uploading images and files |
-   | `canvases:write` | creating canvases |
-   | `reactions:write` | the 👀 / ✅ lifecycle on the asker's message |
+   | `im:history` | direct messages to the bot — optional |
+   | `files:read` | downloading images people send — optional |
+   | `files:write` | uploading images and files — optional |
+   | `canvases:write` | creating canvases — optional |
+   | `reactions:write` | the 👀 / ✅ lifecycle on the asker's message — optional |
    | `pins:write` | pinning the status line (only with `SLACK_STATUS_PIN=1`) |
 
 4. **Event Subscriptions** → on → subscribe to bot events `message.channels`,
