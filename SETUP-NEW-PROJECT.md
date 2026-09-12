@@ -59,9 +59,35 @@ Do this once per workspace, not per project.
    `SLACK_BOT_TOKEN`.
 6. **Invite the bot** to the channel: `/invite @YourBotName`.
 
+7. **App Home** → *Show Tabs* → turn the **Messages Tab** on, and tick
+   **"Allow users to send Slash commands and messages from the messages tab."**
+
+   Only needed for direct messages, but it is not optional for them: without
+   it the DM box is read-only and nobody can type to the bot at all. The scope
+   and the event are not enough on their own, and nothing about the failure
+   points at this setting.
+
 > A new scope does nothing until you click **Reinstall to Workspace**. This is
 > the step people miss; the symptom is a `403` with an HTML body where a file
 > should be.
+
+### What you do not need
+
+Leave these alone — the bridge uses none of them, and each is a way to get
+stuck configuring something that was never required:
+
+| | |
+| --- | --- |
+| **Request URL** under Event Subscriptions | Socket Mode replaces it. There is no URL to verify. |
+| **Slash Commands** | Nothing here registers one. |
+| **Interactivity & Shortcuts** | No buttons or modals are used. |
+| **Incoming Webhooks** | Posting goes through `chat:write` on the bot token. |
+| **Redirect URLs / public distribution** | This is a single-workspace app. |
+| **User token scopes** | Everything runs on the *bot* token. If you have granted user scopes, the app is asking for more than it uses. |
+
+Grant only the scopes in the table above. Anything else — `reminders:read`,
+`users:read`, `search:read` — is unused here and is worth removing, since a bot
+token is a credential sitting in a config file on a developer machine.
 
 ### Should a new project get its own Slack app?
 

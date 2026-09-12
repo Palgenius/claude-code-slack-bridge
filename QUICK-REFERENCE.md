@@ -31,6 +31,7 @@ messages pile up unread.
 | Channel says 🟢 but nothing responds | Orphaned server, or watcher died. `slack_status`. |
 | Two status lines in the channel | The bot token is missing `chat:delete`, so the old one could not be removed |
 | Nothing has ever worked | Bot not invited / scope added without **Reinstall** / tokens swapped |
+| DM box is read-only, can't type to the bot | App Home → Messages Tab is off, or "allow users to send messages" is unticked |
 
 ---
 
