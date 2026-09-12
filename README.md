@@ -143,6 +143,32 @@ active and starts the next pending step, which removes the commonest way to get
 a board wrong — marking a step done, forgetting to start the next one, and
 leaving the checklist looking stalled.
 
+**The channel says whether anything is listening.** On connecting, the server
+posts one line:
+
+```
+🟢 Claude is connected · 2FA_app
+Listening here since 23:24 — @mention me and I'll pick it up.
+```
+
+and rewrites that same line when the session ends:
+
+```
+⚪ Claude is offline · 2FA_app
+Was connected 23:24–00:15 (51m). Nothing is listening in this channel right now.
+```
+
+One message, edited — not a notice per startup. Sessions restart often, and a
+channel filling with "connected… connected… connected" is worse than no signal:
+every line is stale the moment the next arrives and none of them tells you the
+current state. The timestamp is kept on disk so a restart finds its own message
+and edits it.
+
+Without this a quiet channel and a dead one look identical — you write, nothing
+answers, and the bridge being down is indistinguishable from Claude being busy.
+The project name comes from the working directory, or `SLACK_PROJECT_NAME`.
+Turn it off with `SLACK_ANNOUNCE=0`.
+
 **Markdown is converted.** Claude writes GitHub-flavoured markdown; Slack
 speaks a different dialect and renders the difference literally, so `**bold**`
 arrived wearing its asterisks and `[text](url)` as the whole bracket-paren

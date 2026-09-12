@@ -1,3 +1,28 @@
+## 2026-09-12 (presence)
+
+- The channel now says whether anything is listening. On connecting the server
+  posts one line -- green, the project name, since when -- and rewrites that
+  same line to grey when the session ends.
+
+  Without it a quiet channel and a dead one are indistinguishable: you write a
+  message, nothing answers, and the bridge being down looks exactly like Claude
+  being busy.
+
+  One message, edited, rather than a notice per startup. Sessions restart
+  often, and a channel filling with "connected... connected... connected" is
+  worse than no signal at all -- each line is stale the moment the next one
+  lands and none of them states the current position. The message timestamp is
+  kept on disk, keyed by channel, so a restart finds the line it posted last
+  time and edits it in place; if that edit fails, because the message was
+  deleted, it posts a fresh one and remembers that instead.
+
+  A shutdown never posts a *new* offline line -- there is nothing useful in
+  announcing a departure nobody saw arrive -- and the offline write is bounded
+  at three seconds, since it runs while the session is already tearing down.
+
+  `SLACK_ANNOUNCE=0` turns it off. The project name comes from the working
+  directory, or `SLACK_PROJECT_NAME`.
+
 ## 2026-09-12 (orphans)
 
 - **Why orphans happen, established by experiment rather than reading.**

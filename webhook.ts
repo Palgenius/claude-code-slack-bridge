@@ -18,6 +18,7 @@ import {
     ProgressStore, normalizeSteps, applyPatches, advance,
     renderBoard, summarize, type Step,
 } from './progress.js'
+import { StatusStore, renderPresence, projectName } from './presence.js'
 
 // These files used to be written with a bare relative path, which put them in
 // whatever directory the session happened to start in rather than next to the
@@ -60,6 +61,48 @@ const ALIVE_FILE = path.join(
     HERE, `slack-alive${OWN_CHANNEL ? `-${OWN_CHANNEL.replace(/[^A-Za-z0-9_-]/g, '')}` : ''}.json`)
 const ALIVE_INTERVAL_MS = 15_000
 let aliveTimer: NodeJS.Timeout | undefined
+
+/**
+ * The channel's status line: one message saying whether anything is listening.
+ *
+ * Rewritten rather than reposted, and the timestamp is kept on disk so a
+ * restart edits the same message instead of adding another. Off with
+ * SLACK_ANNOUNCE=0 for a channel where it is not wanted.
+ */
+const status = new StatusStore(HERE, OWN_CHANNEL)
+const PROJECT = projectName()
+const ANNOUNCE = process.env.SLACK_ANNOUNCE !== '0' && Boolean(OWN_CHANNEL)
+const connectedAt = Date.now()
+
+async function announce(online: boolean) {
+    if (!ANNOUNCE) return
+
+    const text = renderPresence({
+        project: PROJECT, online, since: connectedAt,
+        ...(online ? {} : { until: Date.now() }),
+    })
+
+    const existing = status.read()
+    if (existing) {
+        const edited = await updateMessage({
+            token: token(), channel: OWN_CHANNEL, ts: existing, text, mrkdwn: false,
+        })
+        if (edited.ok) return
+        // Usually the message was deleted, or this is a different channel from
+        // the one the timestamp was saved for. Fall through and post a new one.
+        diskLog(`status edit failed (${edited.detail}); posting a fresh line`)
+    }
+
+    // Never post a fresh "offline" line: there is nothing useful in announcing
+    // a departure nobody saw arrive, and a shutdown should not leave litter.
+    if (!online) return
+
+    const posted = await postMessage({
+        token: token(), channel: OWN_CHANNEL, text, mrkdwn: false,
+    })
+    if (posted.ok && posted.id) status.write(posted.id)
+    else diskLog(`status post failed: ${posted.detail}`)
+}
 
 function beat() {
     try {
@@ -625,6 +668,19 @@ async function shutdown(why: string) {
     if (streamTimer) clearInterval(streamTimer)
     // Stopped, not deleted: the watcher reads staleness, not absence.
     if (aliveTimer) clearInterval(aliveTimer)
+
+    // Flip the channel's status line to offline before going. Bounded, because
+    // this runs while the session is already tearing down and a hung request
+    // must not hold the process open.
+    try {
+        await Promise.race([
+            announce(false),
+            new Promise((done) => setTimeout(done, 3000)),
+        ])
+    } catch (error) {
+        diskLog(`could not set the status line offline: ${error}`)
+    }
+
     try {
         await app.stop()
     } catch (error) {
@@ -964,6 +1020,9 @@ app.start().then(() => {
     // Tells the mention watcher this session is still here. See ALIVE_FILE.
     beat()
     aliveTimer = setInterval(beat, ALIVE_INTERVAL_MS)
+
+    // Say so in the channel, so a quiet channel can be told from a dead one.
+    void announce(true).catch((error) => diskLog(`status announce failed: ${error}`))
 
     const channel = process.env.SLACK_CHANNEL_ID
     if (process.env.SLACK_STREAM === '1' && channel) {
