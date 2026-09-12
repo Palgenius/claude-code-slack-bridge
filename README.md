@@ -89,7 +89,7 @@ guide, and `/invite @YourBot` to the channel.
 **2. Install:**
 
 ```bash
-git clone https://github.com/<you>/claude-code-slack-bridge.git
+git clone https://github.com/Palgenius/claude-code-slack-bridge.git
 cd claude-code-slack-bridge && npm install
 ```
 

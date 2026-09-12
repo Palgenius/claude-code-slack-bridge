@@ -19,10 +19,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/claude-code-slack-bridge.git"
+    "url": "git+https://github.com/Palgenius/claude-code-slack-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/OWNER/claude-code-slack-bridge/issues"
+    "url": "https://github.com/Palgenius/claude-code-slack-bridge/issues"
   },
   "engines": {
     "node": ">=20"
