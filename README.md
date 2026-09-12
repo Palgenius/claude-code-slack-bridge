@@ -1,5 +1,9 @@
 # Claude Code ⇄ Slack
 
+[![tests](https://github.com/Palgenius/claude-code-slack-bridge/actions/workflows/test.yml/badge.svg)](https://github.com/Palgenius/claude-code-slack-bridge/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A520-green.svg)](package.json)
+
 Talk to Claude Code from a Slack channel, and watch it work while it answers.
 
 An MCP server that runs a Slack app in Socket Mode — no tunnel, no public IP,
