@@ -16,7 +16,7 @@ import {
     react, deleteMessage, pinMessage,
 } from './slackRich.js'
 import { findTranscript, TranscriptTailer } from './transcript.js'
-import { TurnTracker, renderTurn, type ToolDetail } from './turn.js'
+import { TurnTracker, renderTurn, worthShowing, type ToolDetail } from './turn.js'
 import {
     ProgressStore, normalizeSteps, applyPatches, advance,
     renderBoard, summarize, type Step,
@@ -222,7 +222,7 @@ function inboxFor(channel: string): Inbox {
  * that begins takes it: that is what lets the live card go into the asker's
  * own thread and the 👀 land on their message.
  */
-let awaitingPickup: { channel: string, ts: string, thread: string } | null = null
+let awaitingPickup: { channel: string, ts: string, thread: string, at: number } | null = null
 
 /**
  * Every line is tagged with the process and channel that wrote it.
@@ -922,7 +922,7 @@ app.message(async ({ message }) => {
     diskLog(`INBOX <- ${entry.user}${isDirect ? ' (dm)' : ''}: ${entry.text.slice(0, 60)}`)
 
     // Held for the live view to claim when work on it starts.
-    awaitingPickup = { channel: entry.channel, ts: entry.ts, thread: entry.thread_ts }
+    awaitingPickup = { channel: entry.channel, ts: entry.ts, thread: entry.thread_ts, at: Date.now() }
 
     // Still attempted, so this works natively the moment a session does have
     // --channels. Without the flag Claude Code accepts the notification and
@@ -995,6 +995,15 @@ const STREAM_QUEUE_MAX = 200
  * minute; four seconds keeps it to fifteen, with room for everything else.
  */
 const CARD_INTERVAL_MS = 4000
+
+/**
+ * How long a waiting mention can still claim the next turn.
+ *
+ * Without a bound, a mention nobody acted on sits there and attaches itself to
+ * whatever turn happens next -- which is how a card ended up in the channel
+ * fourteen minutes after the question it claimed to answer.
+ */
+const PICKUP_WINDOW_MS = 120_000
 
 /**
  * Whether to mirror Claude's own prose into the channel as well as the card.
@@ -1081,30 +1090,60 @@ function startStreaming(channel: string) {
         if (!r.ok) diskLog(`card update failed: ${r.detail}`)
     }
 
+    /**
+     * Post the card, once the turn has shown it is worth one.
+     *
+     * Deferred rather than posted at `start`, because most turns are not worth
+     * a line in the channel and there is no way to know at the start which
+     * those are. Waiting for the first tool call -- or for the turn to run long
+     * enough to be worth watching -- means a quick answer leaves nothing behind
+     * but the answer itself.
+     */
+    async function ensureCard(turn: Parameters<typeof renderTurn>[0]) {
+        if (cardTs || !worthShowing(turn)) return
+
+        const text = renderTurn(turn)
+        const posted = await postMessage({
+            token: token(), channel, text, thread_ts: threadTs, mrkdwn: false,
+        })
+        if (!posted.ok || !posted.id) {
+            diskLog(`card post failed: ${posted.detail}`)
+            return
+        }
+        cardTs = posted.id
+        lastCard = text
+        lastCardAt = Date.now()
+
+        // With no thread of its own the card starts one, so a long turn is a
+        // single item in the channel rather than a runaway scroll.
+        if (!threadTs) threadTs = cardTs
+    }
+
     async function handle(event: ReturnType<TurnTracker['feed']>[number]) {
         if (event.kind === 'start') {
-            // The mention that set this off, if one is waiting. Claimed rather
-            // than copied, so a second turn cannot land in the same thread.
-            const claim = awaitingPickup
-            awaitingPickup = null
+            // The mention that set this off, if one is waiting and recent.
+            // Claimed rather than copied, so a second turn cannot land in the
+            // same thread -- and only if it is fresh, or an old mention would
+            // attach an unrelated turn to a question asked ten minutes ago.
+            const claim = awaitingPickup && Date.now() - awaitingPickup.at <= PICKUP_WINDOW_MS
+                ? awaitingPickup
+                : null
+            if (claim) awaitingPickup = null
+
             trigger = claim ? { channel: claim.channel, ts: claim.ts } : null
             threadTs = claim && claim.channel === channel ? claim.thread : undefined
-
-            const text = renderTurn(event.turn)
-            const posted = await postMessage({
-                token: token(), channel, text, thread_ts: threadTs, mrkdwn: false,
-            })
-            cardTs = posted.ok && posted.id ? posted.id : ''
-            lastCard = text
-            lastCardAt = Date.now()
-
-            // With no thread of its own the card starts one, so a long turn is
-            // a single item in the channel rather than a runaway scroll.
-            if (!threadTs && cardTs) threadTs = cardTs
+            cardTs = ''
+            lastCard = ''
 
             if (trigger) {
                 await react({ token: token(), channel: trigger.channel, ts: trigger.ts, emoji: 'eyes' })
             }
+            return
+        }
+
+        if (event.kind === 'activity') {
+            // The first tool call is what proves a turn is worth a card.
+            await ensureCard(event.turn)
             return
         }
 
@@ -1125,7 +1164,10 @@ function startStreaming(channel: string) {
         }
 
         if (event.kind === 'end') {
-            await paint(renderTurn(event.turn), true)
+            // A turn that never earned a card does not get one now: the work is
+            // over, so a card would only be an epitaph for something nobody
+            // watched. The reply itself is the record.
+            if (cardTs) await paint(renderTurn(event.turn), true)
             if (trigger) {
                 await react({
                     token: token(), channel: trigger.channel, ts: trigger.ts,
@@ -1161,9 +1203,15 @@ function startStreaming(channel: string) {
 
             // Tick the clock, and show any tool calls that arrived since.
             const running = tracker.current
-            if (running && running.phase === 'working' && cardTs
-                && Date.now() - lastCardAt >= CARD_INTERVAL_MS) {
-                try { await paint(renderTurn(running)) } catch (err) { diskLog(`card tick failed: ${err}`) }
+            if (running && running.phase === 'working') {
+                try {
+                    // A long turn with no tool calls still earns a card once it
+                    // has run long enough to be worth watching.
+                    await ensureCard(running)
+                    if (cardTs && Date.now() - lastCardAt >= CARD_INTERVAL_MS) {
+                        await paint(renderTurn(running))
+                    }
+                } catch (err) { diskLog(`card tick failed: ${err}`) }
             }
 
             void drain()

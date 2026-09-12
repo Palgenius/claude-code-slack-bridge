@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
     TurnTracker, renderTurn, toolTarget, shortToolName,
-    formatDuration, formatTokens, ACTIVITY_ROWS, type Turn,
+    formatDuration, formatTokens, ACTIVITY_ROWS, worthShowing, TRIVIAL_MS, type Turn,
 } from './turn.js'
 
 let clock = 1_700_000_000_000
@@ -332,5 +332,50 @@ test('renderTurn', async (t) => {
         const files = Array.from({ length: 20 }, (_, i) => `f${i}.ts`)
         const text = renderTurn(base({ phase: 'done', endedAt: 1, files }), 1)
         assert.match(text, /_\+8 more_/)
+    })
+})
+
+test('worthShowing', async (t) => {
+    const base = (over: Partial<Turn> = {}): Turn => ({
+        id: 't', startedAt: 0, phase: 'done', endedAt: 2_000,
+        activity: [], tools: 0, errors: 0, files: [], outputTokens: 700, ...over,
+    })
+
+    await t.test('a two-second answer with no tools is not worth a card', () => {
+        // "Done · 0s · 707 tokens" names no question and reports no work, but
+        // still takes a slot in the channel.
+        assert.equal(worthShowing(base(), 2_000), false)
+    })
+
+    await t.test('any tool call makes it worth showing', () => {
+        assert.equal(worthShowing(base({ tools: 1 }), 2_000), true)
+    })
+
+    await t.test('so does a failure, however quick', () => {
+        assert.equal(worthShowing(base({ errors: 1 }), 2_000), true)
+    })
+
+    await t.test('a long turn earns one even with no tools', () => {
+        assert.equal(worthShowing(base({ endedAt: undefined }), TRIVIAL_MS + 1), true)
+    })
+})
+
+test('renderTurn names the question', async (t) => {
+    await t.test('shows what was asked', () => {
+        // Several finished cards in a channel are otherwise indistinguishable.
+        const text = renderTurn({
+            id: 't', prompt: 'deploy the staging branch', startedAt: 0,
+            endedAt: 5000, phase: 'done', activity: [], tools: 2,
+            errors: 0, files: [], outputTokens: 0,
+        }, 5000)
+        assert.match(text, /_deploy the staging branch_/)
+    })
+
+    await t.test('carries no prompt line when there was none', () => {
+        const text = renderTurn({
+            id: 't', startedAt: 0, endedAt: 5000, phase: 'done',
+            activity: [], tools: 1, errors: 0, files: [], outputTokens: 0,
+        }, 5000)
+        assert.doesNotMatch(text, /^_/m)
     })
 })

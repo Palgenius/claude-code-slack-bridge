@@ -1,3 +1,26 @@
+## 2026-09-13 (the channel view, looked at properly)
+
+Three problems, all visible in a screenshot of a real channel and none of them
+in any test.
+
+- **A card is no longer posted for a turn that did not earn one.** The channel
+  had four of these in a row -- `Done, 0s, 707 tokens` -- naming no question,
+  reporting no work, and still taking a slot each. The card is now deferred
+  until the turn calls a tool, fails, or runs past ten seconds; below that the
+  reply in the thread is the whole record and the channel stays quiet. A turn
+  that never earned a card does not get one at the end either: by then the work
+  is over and the card would only be an epitaph for something nobody watched.
+
+- **The card says what was asked.** `Done, 35s` gives no clue which of several
+  questions it answered. The prompt is carried on the turn now, shortened to a
+  line and redacted like everything else, and rendered under the status.
+
+- **A stale mention can no longer claim an unrelated turn.** `awaitingPickup`
+  had no expiry, so a mention nobody acted on sat there and attached itself to
+  whatever ran next -- which is how a card ended up in the channel root
+  fourteen minutes after the question it claimed to answer, while the real
+  reply was in a thread elsewhere. Two minutes now.
+
 ## 2026-09-13 (a status line you can actually see)
 
 - The status line moves to the bottom of the channel when it changes, instead

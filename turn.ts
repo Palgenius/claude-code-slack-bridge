@@ -43,6 +43,14 @@ export interface Activity {
 
 export interface Turn {
     id: string
+    /**
+     * What was asked, shortened.
+     *
+     * Without it a finished card reads "Done, 35s" and says nothing about
+     * which of several questions it answered -- in a channel with a few turns
+     * in it they become indistinguishable from each other.
+     */
+    prompt?: string
     startedAt: number
     endedAt?: number
     phase: 'working' | 'done'
@@ -120,9 +128,17 @@ function fileFrom(input: unknown): string | undefined {
 /** Tools that change a file, so "touched" means touched rather than read. */
 const WRITING_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 
-function newTurn(id: string, at: number): Turn {
+/** The asked question, redacted and cut to something that fits one line. */
+function askedText(content: unknown): string | undefined {
+    if (typeof content !== 'string') return undefined
+    const clean = redact(content).replace(/\s+/g, ' ').trim()
+    if (!clean) return undefined
+    return clean.length > 80 ? `${clean.slice(0, 79)}…` : clean
+}
+
+function newTurn(id: string, at: number, prompt?: string): Turn {
     return {
-        id, startedAt: at, phase: 'working',
+        id, prompt, startedAt: at, phase: 'working',
         activity: [], tools: 0, errors: 0, files: [], outputTokens: 0,
     }
 }
@@ -168,7 +184,9 @@ export class TurnTracker {
                         this.turn.endedAt = at
                         events.push({ kind: 'end', turn: this.snapshot() })
                     }
-                    this.turn = newTurn(String(entry.uuid || `turn-${++this.counter}`), at)
+                    this.turn = newTurn(
+                        String(entry.uuid || `turn-${++this.counter}`), at,
+                        askedText(entry.message.content))
                     events.push({ kind: 'start', turn: this.snapshot() })
                     continue
                 }
@@ -277,6 +295,22 @@ export const ACTIVITY_ROWS = 6
  * activity gives way to the files it touched, because at that point what was
  * done matters more than the order it happened in.
  */
+/**
+ * Whether a turn is worth a card at all.
+ *
+ * A card for a turn that took two seconds and called nothing says only "✅ Done
+ * · 0s · 707 tokens" — it names no question, reports no work, and still takes a
+ * slot in the channel. A handful of those and the channel is mostly the bot
+ * announcing that it finished things nobody watched it start.
+ */
+export function worthShowing(turn: Turn, now: number = Date.now()): boolean {
+    if (turn.tools > 0 || turn.errors > 0) return true
+    return (turn.endedAt ?? now) - turn.startedAt >= TRIVIAL_MS
+}
+
+/** Under this, with no tools, a turn is not worth a line in the channel. */
+export const TRIVIAL_MS = 10_000
+
 export function renderTurn(turn: Turn, now: number = Date.now()): string {
     const elapsed = formatDuration((turn.endedAt ?? now) - turn.startedAt)
 
@@ -294,6 +328,10 @@ export function renderTurn(turn: Turn, now: number = Date.now()): string {
     } else {
         lines.push(`✅ *Done*  ·  ${facts.join('  ·  ')}`)
     }
+
+    // What was asked, so a finished card is identifiable. Several cards in a
+    // channel are otherwise indistinguishable from one another.
+    if (turn.prompt) lines.push(`_${turn.prompt}_`)
 
     if (turn.phase === 'working' && turn.activity.length > 0) {
         const hidden = turn.activity.length - ACTIVITY_ROWS

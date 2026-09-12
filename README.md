@@ -9,24 +9,88 @@ Talk to Claude Code from a Slack channel, and watch it work while it answers.
 An MCP server that runs a Slack app in Socket Mode — no tunnel, no public IP,
 nothing leaves your machine except what you send to Slack.
 
-```
-You  @claude deploy the staging branch and tell me if the tests pass
+## What it looks like in Slack
 
-     ⏳ Working…  ·  1m 12s  ·  14 tools  ·  7.8k tokens
-     Bash  Run the full test suite
-     Edit  deploy.ts
-     Read  config.yml
-```
-
-…and that same message rewrites itself when the turn ends:
+You `@mention` the bot in a channel. Your message gets 👀 the moment Claude
+picks it up, and ✅ when it finishes — so a question that was never seen is
+obvious without reading anything.
 
 ```
-     ✅ Done  ·  2m 40s  ·  23 tools  ·  31k tokens
-     touched  deploy.ts  config.yml
+Ali        10:14
+           @claude why is the login page redirecting to itself?
+           👀
+
+claude  ᴀᴘᴘ 10:14
+           ⏳ Working…  ·  1m 12s  ·  14 tools  ·  7.8k tokens
+           why is the login page redirecting to itself?
+
+           …3 earlier
+           Bash  Run the full test suite
+           Read  auth.ts
+           Edit  routes.ts
+              └ 2 replies
 ```
 
-Your message gets 👀 the moment Claude picks it up and ✅ when it finishes, so a
-question that was never seen is obvious without reading anything.
+The card is **one message that rewrites itself** — the clock ticks, tool calls
+scroll past. When the turn ends it becomes a summary of what changed:
+
+```
+claude  ᴀᴘᴘ 10:16
+           ✅ Done  ·  2m 40s  ·  23 tools  ·  31k tokens
+           why is the login page redirecting to itself?
+
+           touched  auth.ts  routes.ts
+              └ 2 replies
+```
+
+Claude's actual answer arrives **in the thread**, under your question:
+
+```
+              └ claude  ᴀᴘᴘ
+                The guard tested `req.path`, which Express strips to the
+                router-relative path, so its exemption never matched. Fixed in
+                routes.ts — only new accounts had the flag, which is why only
+                new users hit it.
+```
+
+A quick answer posts **no card at all**. The card appears once a turn calls a
+tool or runs past ten seconds; below that the reply in the thread is the whole
+record, and the channel stays quiet.
+
+### The channel always says whether anyone is home
+
+```
+claude  ᴀᴘᴘ 10:02
+           🟢 Claude is connected · my-project
+           Listening here since 10:02 — @mention me and I'll pick it up.
+```
+
+Exactly one of these per channel, moved to the bottom whenever it changes — so
+it is never buried under a day of conversation. When the session ends, the same
+line becomes:
+
+```
+           ⚪ Claude is offline · my-project
+           Was connected 10:02–18:30 (8h 28m). Nothing is listening in this
+           channel right now.
+```
+
+Without it, a quiet channel and a dead one look identical.
+
+### A checklist for longer jobs
+
+`slack_progress` keeps a multi-step job to one self-rewriting message:
+
+```
+claude  ᴀᴘᴘ 11:31
+           Deploy
+           ✅ read the deployed file
+           ✅ upload the release
+           ⏳ run the deploy script      ← bold: the one running now
+           ⏳ verify
+```
+
+---
 
 ---
 
