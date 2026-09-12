@@ -196,13 +196,44 @@ event.
   append-only with no bound. `all()` reads the rotated generation too, so
   rotating cannot drop a mention nobody had read yet.
 
-## Streaming Claude's messages into the channel (opt-in)
+## The live view — watching Claude work (opt-in)
 
 Claude Code has no outbound channel, but it writes the session to
-`~/.claude/projects/<project>/<session-id>.jsonl` as it goes. Following that
-file mirrors what Claude writes, line by line, without the platform needing a
-feature. The session id comes from `CLAUDE_CODE_SESSION_ID`, so this works in
-any project with no per-project setup.
+`~/.claude/projects/<project>/<session-id>.jsonl` as it goes. The transcript
+carries the whole shape of a turn, and it was not being read:
+
+- a `user` entry whose content is a plain string is somebody asking
+- `assistant` entries with `stop_reason: "tool_use"` are work continuing
+- `stop_reason: "end_turn"` is the answer being finished
+- `user` entries holding `tool_result` are the work coming back
+
+`turn.ts` reads that and the channel renders it the way the terminal does — one
+card per turn that rewrites itself while the work runs:
+
+```
+⏳ Working…  ·  1m 12s  ·  14 tools  ·  7.8k tokens
+
+…3 earlier
+Bash  Run the full test suite
+Edit  turn.ts
+Read  transcript.ts
+```
+
+and when the turn finishes, the activity gives way to what it changed:
+
+```
+✅ Done  ·  2m 40s  ·  23 tools  ·  31k tokens
+
+touched  webhook.ts  turn.ts  README.md
+```
+
+Claude's prose arrives underneath as separate messages, in the same thread.
+
+**Everything for a turn goes in one thread.** If a Slack mention started the
+work it is the asker's own thread, and **their message gets 👀 while it runs and
+✅ when it is finished** — so a question that was never picked up is obvious
+without reading a word. A turn nobody asked for starts its own thread off the
+card, so a long session stays one item in the channel.
 
 **Off unless you turn it on.** Add to the server's `env` block:
 
@@ -211,28 +242,41 @@ any project with no per-project setup.
 "SLACK_STREAM_TOOLS": "0"
 ```
 
-`SLACK_STREAM_TOOLS=1` additionally posts a line per tool call — the tool's
-name only, never its input, since inputs carry commands and file contents.
+`SLACK_STREAM_TOOLS` controls how much of a tool call is shown:
 
-**Read this before enabling it.** This forwards Claude's side of the session to
-an external service. `transcript.ts` drops `thinking` blocks outright — private
-reasoning has no path to the output — and masks credentials on the way out:
-`pass=`, `xox?-` tokens, connection strings, bearer headers, private keys, long
-hex runs. That matters, because Claude's prose quotes files and command output;
-while this was being built, it printed a database password read from an Apache
-config, and an unredacted streamer would have posted it to the channel.
+| Value | Shows |
+| --- | --- |
+| `0` (default) | nothing about tools |
+| `1` | the tool's name — `Bash`, `Edit` |
+| `detail` | the name and a short target — `Bash  Run the full test suite` |
+
+`detail` never includes a command string, a file's contents, or the code around
+a match. It uses only fields written to be read: the one-line `description`
+Bash and the agent tools carry, the **basename** of a file path, a search
+pattern. All of it goes through the same redaction as the prose.
+
+**Read this before enabling any of it.** This forwards Claude's side of the
+session to an external service. `transcript.ts` drops `thinking` blocks
+outright — private reasoning has no path to the output — and masks credentials
+on the way out: `pass=`, `xox?-` tokens, connection strings, bearer headers,
+private keys, long hex runs. That matters, because Claude's prose quotes files
+and command output; while this was being built, it printed a database password
+read from an Apache config, and an unredacted streamer would have posted it to
+the channel.
 
 Masking is pattern-matching, not a guarantee. A secret in an unusual shape will
 go through. Enable it for a channel you would be comfortable pasting your
 terminal into.
 
 Messages are queued and drained at about one per second, which is
-`chat.postMessage`'s per-channel rate limit.
+`chat.postMessage`'s per-channel rate limit. The card is rewritten every four
+seconds while a turn runs, which is well inside `chat.update`'s allowance.
 
 ## Extra Slack scopes
 
 `files:read` to download attachments, `files:write` to upload, `canvases:write`
-for canvases. A new scope does nothing until the app is reinstalled to the
+for canvases, `reactions:write` for the 👀/✅ lifecycle on your own messages,
+`im:history` for direct messages. A new scope does nothing until the app is reinstalled to the
 workspace.
 
 ## Tests
@@ -241,10 +285,14 @@ workspace.
 npm test
 ```
 
-153 tests over `inbox.ts`, `slackRich.ts`, `transcript.ts`, `mrkdwn.ts` and
-`progress.ts`, using the Node test runner through `tsx` — no new dependencies.
-`webhook.ts` opens a socket on import, so the logic worth testing lives in
-those modules instead.
+198 tests over `inbox.ts`, `slackRich.ts`, `transcript.ts`, `mrkdwn.ts`,
+`progress.ts` and `turn.ts`, using the Node test runner through `tsx` — no new
+dependencies. `webhook.ts` opens a socket on import, so the logic worth testing
+lives in those modules instead.
+
+The turn tracker was also replayed against a real session transcript, which is
+how the bug where one finished turn swallowed every later one was found — it
+reported a single turn running for twenty-three minutes.
 
 ## Known limits
 
@@ -255,6 +303,11 @@ those modules instead.
   rendering of one is worse than the source.
 - The progress boards a server remembers are in memory. Restarting it loses
   them; the tool then asks for the full step list rather than guessing.
+- The live view reads the transcript, so it is a second or two behind and
+  cannot show a partial sentence the way the terminal does. It updates when a
+  block is complete.
+- There is no way to interrupt Claude from Slack. Nothing in the protocol
+  carries it.
 - `send_slack_image` will upload any path it is given. Nothing restricts it to
   a project directory, so treat it as able to put any readable file on this
   machine into the channel.

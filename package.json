@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "npx tsx webhook.ts",
-    "test": "npx tsx --test inbox.test.ts slackRich.test.ts transcript.test.ts mrkdwn.test.ts progress.test.ts",
+    "test": "npx tsx --test inbox.test.ts slackRich.test.ts transcript.test.ts mrkdwn.test.ts progress.test.ts turn.test.ts",
     "watch-mentions": "node watch-mentions.mjs"
   },
   "keywords": [

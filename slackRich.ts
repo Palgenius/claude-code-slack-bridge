@@ -163,6 +163,41 @@ export async function updateMessage(
 }
 
 /**
+ * Put a reaction on a message, taking a previous one off first.
+ *
+ * This is what makes the channel legible at a glance: your own message shows
+ * 👀 the moment Claude picks it up and ✅ when the answer is finished, so a
+ * question that was never seen is obvious without reading anything.
+ *
+ * Failures are reported but are never worth failing a turn over -- a missing
+ * `reactions:write` scope should cost the decoration, not the answer. Slack
+ * says `already_reacted` when the emoji is already there, which is a success
+ * as far as this is concerned.
+ *
+ * Scope: reactions:write.
+ */
+export async function react(
+    opts: { token: string, channel: string, ts: string, emoji: string, remove?: string[] },
+    deps: Deps = realDeps
+): Promise<Result> {
+    if (!opts.ts) return { ok: false, detail: 'ts is required' }
+
+    for (const gone of opts.remove || []) {
+        if (gone === opts.emoji) continue
+        await callApi(deps, opts.token, 'reactions.remove',
+            { channel: opts.channel, timestamp: opts.ts, name: gone })
+    }
+
+    const res = await callApi(deps, opts.token, 'reactions.add',
+        { channel: opts.channel, timestamp: opts.ts, name: opts.emoji })
+
+    if (!res?.ok && res?.error !== 'already_reacted') {
+        return { ok: false, detail: `reactions.add failed: ${res?.error || 'unknown'}` }
+    }
+    return { ok: true, detail: `reacted :${opts.emoji}: on ${opts.ts}` }
+}
+
+/**
  * Upload a local file into a channel.
  *
  * files.upload is deprecated and now refuses, so this is the three-step

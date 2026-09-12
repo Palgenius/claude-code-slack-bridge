@@ -103,6 +103,7 @@ send, which is a confusing error to debug.
    | `files:read` | downloading images people send |
    | `files:write` | uploading images and files |
    | `canvases:write` | creating canvases |
+   | `reactions:write` | the 👀 / ✅ lifecycle on the asker's message |
 
 4. **Event Subscriptions** → on → subscribe to bot events
    `message.channels`, `message.groups`, and `message.im` for direct
@@ -196,40 +197,83 @@ To catch up on anything that arrived while no watcher was running, call the
 
 ---
 
-## 4. Outbound streaming (optional, off by default)
+## 4. The live view (optional, off by default)
 
-Claude Code writes the whole session to disk as it goes:
+Claude Code cannot stream its output to an MCP server (§0.2), but it writes the
+session to `~/.claude/projects/<project>/<session-id>.jsonl` as it goes — and
+that file carries the whole shape of a turn:
 
-```
-~/.claude/projects/<project>/<session-id>.jsonl
-```
-
-Setting `SLACK_STREAM=1` makes the server follow that file and post each new
-message Claude writes, about a second apart. The session id comes from
-`CLAUDE_CODE_SESSION_ID`, so **this needs no per-project configuration** — it
-works in any project that has the server.
-
-What is and is not sent:
-
-| | |
+| In the transcript | Means |
 | --- | --- |
-| Claude's messages to you | **sent** |
-| Private reasoning (`thinking`) | **never** — no code path emits it |
-| Tool inputs (commands, file contents) | **never** |
-| Tool names | only with `SLACK_STREAM_TOOLS=1` |
+| `user` entry, `content` is a plain string | somebody asked for something |
+| `assistant`, `stop_reason: "tool_use"` | work continuing |
+| `assistant`, `stop_reason: "end_turn"` | the answer is finished |
+| `user` entry holding `tool_result` | the work coming back |
+| `tool_result` with `is_error` | a step failed |
 
-Everything sent is redacted first: `pass=` / `password=` / `secret=` / `token=`
-style assignments, `xox?-` and `xapp-` tokens, `user:pass@host` connection
-strings, `Bearer` headers, PEM private keys, AWS keys, and unbroken hex runs of
-32 characters or more.
+`turn.ts` reads that into a turn, and the channel renders it as one card that
+rewrites itself while the work runs:
 
-Verified against a real transcript: a database password present in the file was
-absent from the output.
+```
+⏳ Working…  ·  1m 12s  ·  14 tools  ·  7.8k tokens
 
-**Decide deliberately.** This forwards Claude's side of a session to an
-external service. Enable it for a channel you would be comfortable pasting your
-terminal into, and expect the channel to be considerably busier — it carries
-every message, not the ones Claude chooses to send.
+…3 earlier
+Bash  Run the full test suite
+Edit  turn.ts
+Read  transcript.ts
+```
+
+…and when the turn ends, the activity gives way to what it changed:
+
+```
+✅ Done  ·  2m 40s  ·  23 tools  ·  31k tokens
+
+touched  webhook.ts  turn.ts  README.md
+```
+
+Claude's prose arrives under it as separate messages in the same thread.
+
+**The thread and the reactions are the point.** Everything for one turn goes in
+a thread; if a Slack mention started the work, it is the asker's own thread, and
+their message gets 👀 while it runs and ✅ (or ⚠️) when it finishes. A question
+nobody picked up is then visible without reading anything.
+
+Turn on in the server's `env`:
+
+```json
+"SLACK_STREAM": "1",
+"SLACK_STREAM_TOOLS": "0"
+```
+
+| `SLACK_STREAM_TOOLS` | Shows |
+| --- | --- |
+| `0` (default) | nothing about tools |
+| `1` | the tool's name — `Bash`, `Edit` |
+| `detail` | the name and a short target — `Bash  Run the full test suite` |
+
+`detail` uses only fields written to be read: the one-line `description` that
+Bash and the agent tools carry, the **basename** of a file path, a search
+pattern. Never a command string, never file content, never the code around a
+match — and all of it through the same redaction as the prose.
+
+> **Before enabling any of this.** It forwards Claude's side of a session to an
+> external service. `thinking` blocks have no path to the output at all, and
+> everything else is masked on the way out — but masking is pattern-matching,
+> not a guarantee (§0.4). Enable it for a channel you would be comfortable
+> pasting your terminal into.
+
+Costs: prose drains at one post per second (`chat.postMessage`'s per-channel
+limit); the card is rewritten every four seconds while a turn runs, against
+`chat.update`'s allowance of roughly fifty a minute.
+
+**A bug worth knowing about, because it will come back if the code is
+rewritten.** Not every turn is announced by a string-content `user` entry — a
+queued message or a continuation is not. A tracker that only starts a turn on
+that entry lets one finished turn absorb everything after it: the first replay
+against a real transcript reported a single turn running for twenty-three
+minutes with eighty-nine tool calls, and fired `end` again each time another
+finished. The rule is that an `assistant` entry arriving after `end_turn`
+starts a new turn.
 
 ---
 
@@ -402,6 +446,7 @@ modules instead.
 | `slackRich.ts` | post, edit, upload, canvas — `fetch` injected so it is testable |
 | `mrkdwn.ts` | markdown → Slack mrkdwn, and splitting an over-long message |
 | `progress.ts` | the `slack_progress` checklist: statuses, rendering, the board store |
+| `turn.ts` | reading turns out of the transcript, and the live card |
 | `transcript.ts` | finding and tailing the session transcript, and redaction |
 | `watch-mentions.mjs` | the Monitor script for §3 |
 | `slack-debug.log` | everything the server did, next to the server; rotates at 4MB |
@@ -410,7 +455,7 @@ modules instead.
 | `attachments/` | downloaded images |
 | `README.md` | what was changed locally in this copy, and why |
 | `CHANGES.md` | dated log of those changes |
-| `*.test.ts` | 153 tests, Node's runner through `tsx`, no extra dependencies |
+| `*.test.ts` | 198 tests, Node's runner through `tsx`, no extra dependencies |
 | `webhook.ts.bak-*` | the untouched upstream server |
 
 ---

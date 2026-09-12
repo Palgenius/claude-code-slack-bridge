@@ -1,3 +1,52 @@
+## 2026-09-12 (live view)
+
+- The channel now shows Claude working, instead of a log being copied into it.
+
+  The old streamer posted each block as it appeared: disconnected fragments
+  with no beginning, no end and nothing in between. The terminal does not feel
+  like that because it has a *turn* -- you ask, something visibly works, an
+  answer arrives -- and that structure was already in the transcript and simply
+  was not being read. A `user` entry whose content is a plain string is
+  somebody asking; `stop_reason: "tool_use"` is work continuing;
+  `stop_reason: "end_turn"` is the answer finished; `user` entries holding
+  `tool_result` are the work coming back, and carry `is_error` when a step
+  failed.
+
+  `turn.ts` reads that and renders one card per turn that rewrites itself:
+  a status line that ticks with elapsed time, tool count and tokens, the most
+  recent tool calls beneath it, and -- once the turn ends -- the list of files
+  it changed in place of the activity, because by then what was done matters
+  more than the order it happened in. Claude's prose arrives underneath as
+  separate messages in the same thread.
+
+- Everything for a turn goes in one thread, and the asker's own message gets an
+  eyes reaction while it runs and a tick (or a warning if a step failed) when it
+  finishes. A question nobody picked up is now obvious without reading anything.
+  Needs `reactions:write`.
+
+- `SLACK_STREAM_TOOLS` gained a `detail` level, off by default. It shows a
+  short target next to the tool name using only fields written to be read: the
+  one-line `description` Bash and the agent tools carry, the basename of a file
+  path, a search pattern. Never a command string, never file content, never the
+  code around a match -- and all of it through the same redaction as the prose.
+  Using the `description` rather than the command is the reason this is
+  possible at all: it is both safer and more readable than anything that could
+  be derived from the command itself.
+
+- Fixed a bug the fixtures could not have found. Not every turn is announced by
+  a string-content `user` entry -- a queued message or a continuation is not --
+  so a finished turn kept absorbing everything after it. Replaying a real
+  session transcript reported one turn running for twenty-three minutes with
+  eighty-nine tool calls, and fired `end` again each time another turn ended.
+  An `assistant` entry arriving after `end_turn` now starts a new turn.
+
+- `TranscriptTailer` grew `nextEntries()` for whole parsed entries; `next()`
+  keeps its old shape and both now share one read, so the byte offset advances
+  once however it is consumed.
+
+- 198 tests now, over six modules. The turn tracker is also replayed against a
+  real transcript, which is how the bug above was found.
+
 ## 2026-09-12 (later)
 
 - Added `slack_progress`: a checklist kept to one message that rewrites itself
@@ -63,7 +112,9 @@
 - The stream queue is bounded at 200 blocks. A busy session writes faster than
   Slack accepts for as long as it runs, so an unbounded queue ends up narrating
   something that finished ten minutes ago. The oldest are dropped and the count
-  is posted. `SLACK_STREAM_THREAD` puts the whole stream in one thread.
+  is posted. `SLACK_STREAM_THREAD` put the whole stream in one thread; the
+  live view below replaced it, since threading is now per turn and needs no
+  configuring.
 
 - `npm test` was running two of the three test files, so the redaction tests --
   the ones guarding against posting a secret to a channel -- were not running

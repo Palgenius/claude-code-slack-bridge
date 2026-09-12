@@ -11,8 +11,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 import { Inbox, mentionsBot, stripMention, isFromPerson, rotateIfLarge } from './inbox.js'
-import { uploadFile, createCanvas, postMessage, updateMessage } from './slackRich.js'
+import { uploadFile, createCanvas, postMessage, updateMessage, react } from './slackRich.js'
 import { findTranscript, TranscriptTailer } from './transcript.js'
+import { TurnTracker, renderTurn, type ToolDetail } from './turn.js'
 import {
     ProgressStore, normalizeSteps, applyPatches, advance,
     renderBoard, summarize, type Step,
@@ -26,6 +27,16 @@ const LOG_FILE = path.join(HERE, 'slack-debug.log')
 const LOG_MAX_BYTES = 4 * 1024 * 1024
 const inbox = new Inbox(HERE)
 const boards = new ProgressStore()
+
+/**
+ * The last message that asked for something, waiting for a turn to claim it.
+ *
+ * Claude Code never tells the server "I am starting work on that" -- the only
+ * evidence is the transcript. So the mention is held here, and the next turn
+ * that begins takes it: that is what lets the live card go into the asker's
+ * own thread and the 👀 land on their message.
+ */
+let awaitingPickup: { channel: string, ts: string, thread: string } | null = null
 
 function diskLog(message: string) {
     try {
@@ -617,6 +628,9 @@ app.message(async ({ message }) => {
     inbox.append(entry)
     diskLog(`INBOX <- ${entry.user}${isDirect ? ' (dm)' : ''}: ${entry.text.slice(0, 60)}`)
 
+    // Held for the live view to claim when work on it starts.
+    awaitingPickup = { channel: entry.channel, ts: entry.ts, thread: entry.thread_ts }
+
     // Still attempted, so this works natively the moment a session does have
     // --channels. Without the flag Claude Code accepts the notification and
     // drops it, which is the whole reason the inbox above exists.
@@ -680,6 +694,23 @@ if (!botUserId) {
  */
 const STREAM_QUEUE_MAX = 200
 
+/**
+ * How often the live card is rewritten while a turn is running.
+ *
+ * The elapsed time is part of the card, so it changes on every tick and this
+ * interval is the whole cost. `chat.update` allows roughly fifty calls a
+ * minute; four seconds keeps it to fifteen, with room for everything else.
+ */
+const CARD_INTERVAL_MS = 4000
+
+/** `0`/unset says nothing about tools, `1` their names, `detail` a target too. */
+function toolDetail(): ToolDetail {
+    const value = (process.env.SLACK_STREAM_TOOLS || '0').toLowerCase()
+    if (value === 'detail' || value === '2') return 'detail'
+    if (value === '1' || value === 'true') return 'name'
+    return 'none'
+}
+
 function startStreaming(channel: string) {
     const file = findTranscript({ sessionId: process.env.CLAUDE_CODE_SESSION_ID })
     if (!file) {
@@ -687,25 +718,27 @@ function startStreaming(channel: string) {
         return
     }
 
-    const tailer = new TranscriptTailer(file, {
-        tools: process.env.SLACK_STREAM_TOOLS === '1',
-    })
-    diskLog(`Streaming Claude's messages from ${file}`)
-
-    // Everything goes into one thread, so a whole session's narration is one
-    // collapsible item in the channel rather than an endless scroll that
-    // buries the conversation people are actually having.
-    const threadTs = process.env.SLACK_STREAM_THREAD
+    const tailer = new TranscriptTailer(file)
+    const tracker = new TurnTracker(toolDetail())
+    diskLog(`Live view following ${file} (tool detail: ${toolDetail()})`)
 
     // chat.postMessage is rate limited at roughly one per second per channel,
     // and a single reply can hold several blocks. Queue them and drain at a
     // pace Slack accepts, rather than firing them all and being throttled.
-    const queue: string[] = []
+    const queue: { text: string, thread?: string }[] = []
     let dropped = 0
     let draining = false
 
-    function enqueue(text: string) {
-        queue.push(text)
+    // The card being rewritten, the thread this turn lives in, and the message
+    // that asked for it.
+    let cardTs = ''
+    let threadTs: string | undefined
+    let trigger: { channel: string, ts: string } | null = null
+    let lastCard = ''
+    let lastCardAt = 0
+
+    function enqueue(text: string, thread?: string) {
+        queue.push({ text, thread })
         while (queue.length > STREAM_QUEUE_MAX) {
             queue.shift()
             dropped++
@@ -717,12 +750,9 @@ function startStreaming(channel: string) {
         draining = true
         try {
             while (queue.length > 0 && !stopping) {
-                const text = queue.shift() as string
+                const item = queue.shift() as { text: string, thread?: string }
                 const r = await postMessage({
-                    token: token(),
-                    channel,
-                    text,
-                    thread_ts: threadTs,
+                    token: token(), channel, text: item.text, thread_ts: item.thread,
                 })
                 if (!r.ok) diskLog(`stream post failed: ${r.detail}`)
                 await new Promise((done) => setTimeout(done, 1100))
@@ -738,13 +768,92 @@ function startStreaming(channel: string) {
         }
     }
 
-    streamTimer = setInterval(() => {
-        try {
-            for (const block of tailer.next()) enqueue(block.text)
-        } catch (err) {
-            diskLog(`stream read failed: ${err}`)
+    /** Rewrite the card, unless nothing has changed since it was last sent. */
+    async function paint(text: string, force = false) {
+        if (!cardTs) return
+        if (!force && text === lastCard) return
+        lastCard = text
+        lastCardAt = Date.now()
+        const r = await updateMessage({ token: token(), channel, ts: cardTs, text, mrkdwn: false })
+        if (!r.ok) diskLog(`card update failed: ${r.detail}`)
+    }
+
+    async function handle(event: ReturnType<TurnTracker['feed']>[number]) {
+        if (event.kind === 'start') {
+            // The mention that set this off, if one is waiting. Claimed rather
+            // than copied, so a second turn cannot land in the same thread.
+            const claim = awaitingPickup
+            awaitingPickup = null
+            trigger = claim ? { channel: claim.channel, ts: claim.ts } : null
+            threadTs = claim && claim.channel === channel ? claim.thread : undefined
+
+            const text = renderTurn(event.turn)
+            const posted = await postMessage({
+                token: token(), channel, text, thread_ts: threadTs, mrkdwn: false,
+            })
+            cardTs = posted.ok && posted.id ? posted.id : ''
+            lastCard = text
+            lastCardAt = Date.now()
+
+            // With no thread of its own the card starts one, so a long turn is
+            // a single item in the channel rather than a runaway scroll.
+            if (!threadTs && cardTs) threadTs = cardTs
+
+            if (trigger) {
+                await react({ token: token(), channel: trigger.channel, ts: trigger.ts, emoji: 'eyes' })
+            }
+            return
         }
-        void drain()
+
+        if (event.kind === 'text') {
+            enqueue(event.text, threadTs)
+            return
+        }
+
+        if (event.kind === 'end') {
+            await paint(renderTurn(event.turn), true)
+            if (trigger) {
+                await react({
+                    token: token(), channel: trigger.channel, ts: trigger.ts,
+                    emoji: event.turn.errors > 0 ? 'warning' : 'white_check_mark',
+                    remove: ['eyes'],
+                })
+            }
+            cardTs = ''
+            trigger = null
+            return
+        }
+
+        // 'activity' waits for the tick below, so a burst of tool calls costs
+        // one rewrite rather than twenty.
+    }
+
+    streamTimer = setInterval(() => {
+        void (async () => {
+            let events: ReturnType<TurnTracker['feed']> = []
+            try {
+                events = tracker.feed(tailer.nextEntries())
+            } catch (err) {
+                diskLog(`stream read failed: ${err}`)
+            }
+
+            for (const event of events) {
+                try {
+                    await handle(event)
+                } catch (err) {
+                    diskLog(`live view failed on ${event.kind}: ${err}`)
+                }
+            }
+
+            // Tick the clock, and show any tool calls that arrived since.
+            const running = tracker.current
+            if (running && running.phase === 'working' && cardTs
+                && Date.now() - lastCardAt >= CARD_INTERVAL_MS) {
+                try { await paint(renderTurn(running)) } catch (err) { diskLog(`card tick failed: ${err}`) }
+            }
+
+            void drain()
+        })()
     }, 1500)
 }
 

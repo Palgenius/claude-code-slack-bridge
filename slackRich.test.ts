@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-    uploadFile, createCanvas, postMessage, updateMessage,
+    uploadFile, createCanvas, postMessage, updateMessage, react,
     MAX_UPLOAD_BYTES, MAX_TEXT, type Deps,
 } from './slackRich.js'
 
@@ -346,5 +346,59 @@ test('createCanvas', async (t) => {
         await createCanvas({ token: TOKEN, channel: CHANNEL, title: 'T', markdown: md }, deps)
         assert.deepEqual(bodies['conversations.canvases.create'].document_content,
             { type: 'markdown', markdown: md })
+    })
+})
+
+test('react', async (t) => {
+    await t.test('adds the emoji to the message', async () => {
+        const { deps, calls, bodies } = fakeSlack({ 'reactions.add': { ok: true } })
+        const r = await react({ token: TOKEN, channel: CHANNEL, ts: '1789.001', emoji: 'eyes' }, deps)
+
+        assert.equal(r.ok, true)
+        assert.deepEqual(calls, ['reactions.add'])
+        assert.equal(bodies['reactions.add'].timestamp, '1789.001')
+        assert.equal(bodies['reactions.add'].name, 'eyes')
+    })
+
+    await t.test('takes the previous one off first', async () => {
+        // The lifecycle is one reaction at a time: watching, then finished.
+        const { deps, calls } = fakeSlack({
+            'reactions.remove': { ok: true },
+            'reactions.add': { ok: true },
+        })
+        await react({
+            token: TOKEN, channel: CHANNEL, ts: '1789.001',
+            emoji: 'white_check_mark', remove: ['eyes'],
+        }, deps)
+
+        assert.deepEqual(calls, ['reactions.remove', 'reactions.add'])
+    })
+
+    await t.test('does not remove the emoji it is about to add', async () => {
+        const { deps, calls } = fakeSlack({ 'reactions.add': { ok: true } })
+        await react({ token: TOKEN, channel: CHANNEL, ts: '1', emoji: 'eyes', remove: ['eyes'] }, deps)
+        assert.deepEqual(calls, ['reactions.add'])
+    })
+
+    await t.test('already_reacted is a success, not a failure', async () => {
+        // Re-reacting is the expected outcome of a retry, and it means the
+        // message is in the state that was wanted.
+        const { deps } = fakeSlack({ 'reactions.add': { ok: false, error: 'already_reacted' } })
+        const r = await react({ token: TOKEN, channel: CHANNEL, ts: '1', emoji: 'eyes' }, deps)
+        assert.equal(r.ok, true)
+    })
+
+    await t.test('reports a missing scope rather than pretending', async () => {
+        const { deps } = fakeSlack({ 'reactions.add': { ok: false, error: 'missing_scope' } })
+        const r = await react({ token: TOKEN, channel: CHANNEL, ts: '1', emoji: 'eyes' }, deps)
+        assert.equal(r.ok, false)
+        assert.match(r.detail, /missing_scope/)
+    })
+
+    await t.test('refuses without a ts', async () => {
+        const { deps, calls } = fakeSlack({})
+        const r = await react({ token: TOKEN, channel: CHANNEL, ts: '', emoji: 'eyes' }, deps)
+        assert.equal(r.ok, false)
+        assert.deepEqual(calls, [])
     })
 })

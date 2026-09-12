@@ -104,6 +104,27 @@ export function redact(text: string): string {
 }
 
 /**
+ * Every entry in a run of transcript lines, parsed and nothing more.
+ *
+ * The turn tracker needs the whole entry -- stop_reason, timestamps, tool
+ * results -- rather than the postable blocks `parseLines` picks out. Redaction
+ * happens where a value is actually used for output, not here, because this is
+ * also read for structure that never reaches the channel.
+ */
+export function parseEntries(chunk: string): unknown[] {
+    const out: unknown[] = []
+    for (const line of chunk.split('\n')) {
+        if (line.trim() === '') continue
+        try {
+            out.push(JSON.parse(line))
+        } catch {
+            // A half-written last line; the next read sees it whole.
+        }
+    }
+    return out
+}
+
+/**
  * Pull the postable blocks out of a run of transcript lines.
  *
  * `thinking` is dropped here rather than filtered later, so there is no path
@@ -166,19 +187,24 @@ export class TranscriptTailer {
         }
     }
 
-    /** Blocks written since the last call. */
-    next(): Emitted[] {
+    /**
+     * The raw text written since the last call, cut at the last complete line.
+     *
+     * Empty when there is nothing new. Both `next()` and `nextEntries()` read
+     * through here, so the byte offset advances once however it is consumed.
+     */
+    private read(): string {
         let size: number
         try {
             size = fs.statSync(this.file).size
         } catch {
-            return []
+            return ''
         }
 
         // A smaller file means it was replaced or truncated; start again from
         // the top of the new one rather than reading from a stale offset.
         if (size < this.offset) this.offset = 0
-        if (size === this.offset) return []
+        if (size === this.offset) return ''
 
         const length = size - this.offset
         const buf = Buffer.alloc(length)
@@ -194,11 +220,23 @@ export class TranscriptTailer {
         // Stop at the last newline: the tail may be a partially written line,
         // and rewinding to there means it is read once it is complete.
         const cut = text.lastIndexOf('\n')
-        if (cut === -1) return []
+        if (cut === -1) return ''
         this.offset += Buffer.byteLength(text.slice(0, cut + 1), 'utf8')
+        return text.slice(0, cut)
+    }
+
+    /** Whole entries written since the last call, for the turn tracker. */
+    nextEntries(): unknown[] {
+        return parseEntries(this.read())
+    }
+
+    /** Blocks written since the last call. */
+    next(): Emitted[] {
+        const text = this.read()
+        if (text === '') return []
 
         const fresh: Emitted[] = []
-        for (const item of parseLines(text.slice(0, cut), { tools: this.emitTools })) {
+        for (const item of parseLines(text, { tools: this.emitTools })) {
             const key = `${item.uuid}:${item.kind}:${item.text.length}`
             if (this.seen.has(key)) continue
             this.seen.add(key)
