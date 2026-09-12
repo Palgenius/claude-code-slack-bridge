@@ -130,6 +130,39 @@ async function refreshListening() {
     await announce(true)
 }
 
+/**
+ * Don't repeat the "nobody is listening" notice for every message.
+ *
+ * One acknowledgement is information; one per message is the bot arguing with
+ * itself in a thread.
+ */
+const DEAF_NOTICE_EVERY_MS = 10 * 60_000
+let lastDeafNotice = 0
+
+/**
+ * Answer in the thread when a message has arrived that nothing will deliver.
+ *
+ * The alternative is silence, which reads as being ignored and is exactly what
+ * sent three separate evenings looking for a bug in the wrong place.
+ */
+async function notifyIfDeaf(channel: string, threadTs?: string) {
+    if (beatHealth(readBeat(HERE, 'watcher', channel)).alive) return
+    if (Date.now() - lastDeafNotice < DEAF_NOTICE_EVERY_MS) return
+    lastDeafNotice = Date.now()
+
+    diskLog('mention arrived with no watcher running — acknowledging in-thread')
+    const posted = await postMessage({
+        token: token(),
+        channel,
+        thread_ts: threadTs,
+        mrkdwn: false,
+        text: '🟡 _Got this, but nothing is delivering it to the session yet —'
+            + ' so it is saved and unread rather than answered._\n'
+            + '_The session needs to start its mention watcher; it will pick this up when it does._',
+    })
+    if (!posted.ok) diskLog(`could not acknowledge: ${posted.detail}`)
+}
+
 async function announce(online: boolean) {
     if (!ANNOUNCE) return
 
@@ -955,6 +988,19 @@ app.message(async ({ message }) => {
 
     inbox.append(entry)
     diskLog(`INBOX <- ${entry.user}${isDirect ? ' (dm)' : ''}: ${entry.text.slice(0, 60)}`)
+
+    // Say so, in the thread, when nothing is going to pick this up.
+    //
+    // Claude Code does nothing at session open -- it acts only when prompted --
+    // so the CLAUDE.md instruction that starts the watcher fires on the
+    // session's first message, not when it opens. Open a session, go straight
+    // to Slack, and there is no watcher: the message is stored correctly and
+    // answered by nobody. From the channel that is indistinguishable from being
+    // ignored, which is the single worst thing this bridge does.
+    //
+    // The server is running and can post, even though it cannot deliver. An
+    // acknowledgement is worth far more than silence.
+    void notifyIfDeaf(entry.channel, entry.thread_ts)
 
     // Held for the live view to claim when work on it starts.
     awaitingPickup = { channel: entry.channel, ts: entry.ts, thread: entry.thread_ts, at: Date.now() }

@@ -1,3 +1,34 @@
+## 2026-09-13 (silence, answered)
+
+- **A mention that nothing can deliver is now acknowledged in the thread.**
+
+  Found by a live test that looked like a failure and was not. The log:
+
+  ```
+  22:29:31  ROUTED -> C0C2952A1CY (not ours) from U039JKT10SY: hi
+  ```
+
+  The message arrived, was routed to the right channel's inbox, and was stored
+  correctly. Nothing answered it, because no watcher was running -- and from the
+  channel that is indistinguishable from being ignored.
+
+  The reason the watcher was not running is worth writing down, because it
+  explains three evenings of this: **Claude Code does nothing at session open.**
+  It acts only when prompted, so the `CLAUDE.md` instruction that starts the
+  watcher fires on the session's first message -- not when the session opens.
+  Open a session, go straight to Slack, and there is no watcher at all. That is
+  why asking "is slack connected?" genuinely was necessary: the question itself
+  was what gave Claude a turn in which to start it.
+
+  The server is running and can post even when it cannot deliver, so it now
+  says so in the thread rather than leaving silence. Rate limited to one notice
+  per ten minutes, because one acknowledgement is information and one per
+  message is the bot arguing with itself.
+
+- Note on the amber status line added earlier: it makes the state *visible*, it
+  does not fix it. Seeing 🟡 still means somebody has to prompt the session. The
+  two together mean the failure is never silent, from either side.
+
 ## 2026-09-13 (the channel answers the question)
 
 - The status line now distinguishes *connected* from *listening*. A server with

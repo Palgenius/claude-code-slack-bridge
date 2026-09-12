@@ -78,6 +78,20 @@ claude  ᴀᴘᴘ 10:04
 **That is the whole reason you never have to ask whether it is working.** The
 one failure that looks like silence announces itself in the channel.
 
+And if you @mention while it is in that state, you get an answer rather than
+nothing:
+
+```
+              └ claude  ᴀᴘᴘ
+                🟡 Got this, but nothing is delivering it to the session yet —
+                so it is saved and unread rather than answered.
+```
+
+Worth knowing why this happens at all: **Claude Code does nothing at session
+open.** It acts only when prompted, so the `CLAUDE.md` instruction that starts
+the watcher runs on the session's first message rather than when the session
+opens. Open a session, go straight to Slack, and nothing is listening yet.
+
 Exactly one of these per channel, moved to the bottom whenever it changes — so
 it is never buried under a day of conversation. When the session ends, the same
 line becomes:
