@@ -249,6 +249,17 @@ const mcp = new Server(
             'If the incoming message carries a `thread_ts`, pass it back so the reply lands in the same thread rather than at the top of the channel.',
             'If this session was NOT started with --channels those events never arrive — call `check_slack_inbox` to read messages instead. Messages in a channel are collected only when they @mention the bot; every direct message is collected.',
             'For work with more than two or three steps, open a `slack_progress` board first and advance it as you go: it is one message that rewrites itself, and it is far easier to follow than a run of progress replies.',
+            // Without the watcher, a Slack message is written to the inbox
+            // correctly and then nothing ever surfaces it: the session sees
+            // silence that is indistinguishable from nobody having written.
+            // The command is spelled out in full because one that has to be
+            // assembled by hand is one that does not get run.
+            'IMPORTANT — inbound delivery needs a watcher, and it does not start itself.',
+            'Early in the session, start it once as a BACKGROUND task (it polls forever, so do not run it in the foreground):',
+            `\`node "${path.join(HERE, 'watch-mentions.mjs').replace(/\\/g, '/')}" --channel ${OWN_CHANNEL || '<channel id>'} --config "${path.join(process.cwd(), '.mcp.json').replace(/\\/g, '/')}"\``,
+            'It should print `watching for @… in C…`; a WARNING block instead means it is reading the wrong inbox.',
+            'If one is already running for this session, do not start a second.',
+            'Until it runs, incoming Slack messages pile up unread and this session will never hear about them — `check_slack_inbox` is the manual fallback.',
         ].join(' '),
     },
 )

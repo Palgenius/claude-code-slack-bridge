@@ -94,12 +94,20 @@ under a Claude Code Monitor and every line becomes an event in the session —
 which is how a Slack message reaches Claude without the flag:
 
 ```
-node watch-mentions.mjs <botUserId> --channel <C0…> --config <path to .mcp.json> [extraLogPath ...]
+node watch-mentions.mjs --config <path to that project's .mcp.json>
 ```
 
-`--channel` picks the inbox for one channel, which is what you want when more
-than one project is running. Without it the watcher reads the shared inbox and
-reports every channel.
+Both the bot id and the channel are read out of that config, because it already
+says which bot and which channel this project uses and one source beats two. A
+command that has to be assembled by hand is one that does not get run — which
+is exactly what kept happening. `--channel` still overrides, and a bot id can
+still be passed as the first argument.
+
+**It does not start itself, and nothing else will start it.** Without it a Slack
+message is written to the inbox correctly and then nothing surfaces it: the
+session sees silence indistinguishable from nobody having written. The MCP
+server now spells the command out in its own `instructions`, so Claude is told
+to start it at the beginning of each session.
 
 `--config` is only used to read the bot token for downloading attachments; it
 is read from the file so the token never appears in a command line. It also

@@ -1,3 +1,19 @@
+## 2026-09-13 (starting the watcher)
+
+- The watcher reads the bot id and the channel out of `--config`, so the whole
+  command is now `node watch-mentions.mjs --config <project>/.mcp.json`. That
+  file already names both; a command that has to be assembled by hand is one
+  that does not get run, which is precisely what kept happening -- three
+  separate times tonight a test looked like a total failure when in fact every
+  message had arrived correctly and nothing was watching the inbox.
+
+  The bot id is resolved through `auth.test` when it is not given.
+
+- The MCP server now spells that command out in its `instructions`, which go
+  into Claude's system prompt, including the project's own config path and
+  channel. Telling the person to remember it had failed three times; telling
+  the model, every session, is the fix.
+
 ## 2026-09-13 (watcher version mismatch)
 
 - `watch-mentions.mjs` now says so, loudly, when it is watching a file nothing

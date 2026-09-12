@@ -32,20 +32,26 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const BOT = process.argv[2]
 
-const rest = process.argv.slice(3)
+// The bot id is optional: given as the first argument, or resolved from the
+// token in --config. Making it optional is what lets the server hand Claude a
+// fixed command to run, rather than one that has to be filled in by hand --
+// and a command that has to be assembled by hand is one that does not get run.
+const argv = process.argv.slice(2)
+let BOT = argv.length > 0 && !argv[0].startsWith('-') ? argv.shift() : ''
+
 let CONFIG = ''
 let CHANNEL = ''
 const EXTRA_LOGS = []
-for (let i = 0; i < rest.length; i++) {
-    if (rest[i] === '--config') { CONFIG = rest[++i] || ''; continue }
-    if (rest[i] === '--channel') { CHANNEL = rest[++i] || ''; continue }
-    EXTRA_LOGS.push(rest[i])
+for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--config') { CONFIG = argv[++i] || ''; continue }
+    if (argv[i] === '--channel') { CHANNEL = argv[++i] || ''; continue }
+    EXTRA_LOGS.push(argv[i])
 }
 
-if (!BOT) {
-    console.error('usage: node watch-mentions.mjs <botUserId> [--channel <C0…>] [--config <mcp.json>] [extraLogPath ...]')
+if (!BOT && !CONFIG) {
+    console.error('usage: node watch-mentions.mjs [botUserId] [--channel <C0…>] [--config <mcp.json>] [extraLogPath ...]')
+    console.error('       the bot id is resolved from --config when it is not given')
     process.exit(2)
 }
 
@@ -54,9 +60,34 @@ let botToken = ''
 if (CONFIG) {
     try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8'))
-        botToken = cfg?.mcpServers?.['slack-channel']?.env?.SLACK_BOT_TOKEN || ''
+        const server = cfg?.mcpServers?.['slack-channel']?.env || {}
+        botToken = server.SLACK_BOT_TOKEN || ''
+        // The channel too, when it was not given: the config already says
+        // which one this project listens to, and one source beats two.
+        if (!CHANNEL) CHANNEL = server.SLACK_CHANNEL_ID || ''
     } catch (err) {
-        console.error(`[watch-mentions] could not read a bot token from ${CONFIG}: ${err.message}`)
+        console.error(`[watch-mentions] could not read ${CONFIG}: ${err.message}`)
+    }
+}
+
+// Ask Slack who we are, rather than making the caller paste an id. Mention
+// matching is the whole job, so there is nothing to do without this.
+if (!BOT) {
+    if (!botToken) {
+        console.error('[watch-mentions] no bot id given and no token in --config to resolve one from')
+        process.exit(2)
+    }
+    try {
+        const who = await fetch('https://slack.com/api/auth.test', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${botToken}` },
+        }).then((r) => r.json())
+        if (!who?.ok || !who.user_id) throw new Error(who?.error || 'auth.test returned nothing')
+        BOT = String(who.user_id)
+        console.error(`[watch-mentions] resolved bot id ${BOT} from ${CONFIG}`)
+    } catch (err) {
+        console.error(`[watch-mentions] could not resolve the bot id: ${err.message}`)
+        process.exit(2)
     }
 }
 
