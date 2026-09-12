@@ -430,10 +430,15 @@ In order:
 cd D:/MCP-tools/Claude-Code-Slack-Channel && npm test
 ```
 
-80 tests over `inbox.ts`, `slackRich.ts` and `transcript.ts`, using the Node
-test runner through `tsx`. No extra dependencies. `webhook.ts` opens a socket
-as soon as it is imported, which is why the testable logic lives in those three
-modules instead.
+198 tests over `inbox.ts`, `slackRich.ts`, `transcript.ts`, `mrkdwn.ts`,
+`progress.ts` and `turn.ts`, using the Node test runner through `tsx`. No extra
+dependencies. `webhook.ts` opens a socket as soon as it is imported, which is
+why the testable logic lives in those modules instead.
+
+The turn tracker is also replayed against a real session transcript, not only
+fixtures. That is what found the bug in §4 — fixtures all began with a
+string-content `user` entry, so the case that breaks it never appeared in
+one.
 
 ---
 
