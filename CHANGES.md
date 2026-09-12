@@ -1,3 +1,19 @@
+## 2026-09-13 (watcher version mismatch)
+
+- `watch-mentions.mjs` now says so, loudly, when it is watching a file nothing
+  writes to any more.
+
+  The inbox moved from one shared `slack-inbox.jsonl` to one file per channel.
+  A watcher started before that change keeps polling the old file forever:
+  messages arrive correctly, get written to the per-channel file, and the
+  watcher reports nothing. The silence is indistinguishable from nobody having
+  said anything -- and it went unnoticed for exactly that reason, with two
+  stale watchers polling a file that had not been written to in an hour while
+  the routing underneath them worked perfectly.
+
+  Starting without `--channel` while per-channel inboxes exist now prints a
+  warning naming the files and saying what to do about it.
+
 ## 2026-09-13
 
 - The status line no longer depends on the dying process to tell the truth.

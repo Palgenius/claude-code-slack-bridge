@@ -119,6 +119,31 @@ const INBOXES = [
 const LOGS = [path.join(HERE, 'slack-debug.log'), ...EXTRA_LOGS]
 
 /**
+ * Say so loudly when this is watching a file nothing writes to any more.
+ *
+ * The inbox used to be one shared `slack-inbox.jsonl` and is now one file per
+ * channel. A watcher started before that change keeps polling the old file
+ * forever: messages arrive correctly, land in the per-channel file, and the
+ * watcher reports nothing -- silence that looks exactly like "no one has said
+ * anything". That is precisely how this went unnoticed once already, so it is
+ * worth a paragraph of noise on startup.
+ */
+if (!key) {
+    let perChannel = []
+    try {
+        perChannel = fs.readdirSync(HERE).filter((f) => /^slack-inbox-.+\.jsonl$/.test(f))
+    } catch { /* nothing to check against */ }
+
+    if (perChannel.length > 0) {
+        console.error(
+            `[watch-mentions] WARNING: started without --channel, so this is reading the old shared\n` +
+            `                 inbox — but per-channel inboxes exist and are where messages now go:\n` +
+            perChannel.map((f) => `                   ${f}`).join('\n') + '\n' +
+            `                 You will see nothing until this is restarted with --channel <C0…>.`)
+    }
+}
+
+/**
  * Stop when the session that started this is gone.
  *
  * Nothing tells this script to exit. Windows has no process-group kill, the
