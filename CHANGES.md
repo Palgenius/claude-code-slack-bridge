@@ -1,3 +1,26 @@
+## 2026-09-13 (the channel answers the question)
+
+- The status line now distinguishes *connected* from *listening*. A server with
+  no watcher is the failure this project keeps hitting -- outbound works, the
+  channel looks alive, and every message written there sits unread -- and
+  saying "connected" in that state is a lie of omission. It reads:
+
+  ```
+  🟡 Claude is connected but not listening · my-project
+  Nothing is delivering messages to the session, so anything written here will
+  wait unread. The session needs to start its mention watcher.
+  ```
+
+  The server already knew: the watcher publishes a heartbeat, and `slack_status`
+  has been reporting it since it was added. The gap was that the only way to see
+  it was to ask from inside the session. Now the channel says it, so nobody has
+  to ask -- which was the actual question: "is this message necessary, or can it
+  work without it?"
+
+  Ninety seconds of grace after connecting, so a session that is simply taking a
+  moment to start its watcher does not flash amber first. Only rewritten when
+  the state actually changes.
+
 ## 2026-09-13 (harness markup in the channel)
 
 - The card showed internal plumbing where the question should be. A live

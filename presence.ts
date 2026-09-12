@@ -20,6 +20,15 @@ export interface Presence {
     /** The project this session is working in, for channels shared by several. */
     project: string
     online: boolean
+    /**
+     * Whether anything is actually delivering messages to the session.
+     *
+     * A connected server with no watcher is the failure this whole project
+     * keeps being bitten by: outbound works, the channel looks alive, and
+     * every message written here sits unread forever. Saying "connected" in
+     * that state is a lie of omission, so the line distinguishes them.
+     */
+    listening?: boolean
     /** When this session connected. */
     since: number
     /** When it went away; only used when offline. */
@@ -48,6 +57,17 @@ function clock(at: number): string {
  */
 export function renderPresence(p: Presence, now: number = Date.now()): string {
     const project = p.project ? ` · ${p.project}` : ''
+
+    if (p.online && p.listening === false) {
+        // Connected but deaf. Worth its own colour: the difference between
+        // this and green is the difference between "ask me" and "anything you
+        // write here will sit unread".
+        return [
+            `🟡 *Claude is connected but not listening*${project}`,
+            `_Nothing is delivering messages to the session, so anything written here will`
+            + ` wait unread. The session needs to start its mention watcher._`,
+        ].join('\n')
+    }
 
     if (p.online) {
         return [

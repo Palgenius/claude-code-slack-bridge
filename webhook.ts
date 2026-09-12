@@ -95,12 +95,47 @@ const connectedAt = Date.now()
 const STATUS_MODE = process.env.SLACK_STATUS_MODE === 'edit' ? 'edit' : 'bottom'
 const STATUS_PIN = process.env.SLACK_STATUS_PIN === '1'
 
+/**
+ * How long after connecting before a missing watcher is worth reporting.
+ *
+ * The watcher is started by the session a moment after the server comes up, so
+ * without a grace period every startup would post an amber line and then a
+ * green one seconds later. Long enough to cover a session getting to it,
+ * short enough that a session which never does is called out quickly.
+ */
+const LISTENING_GRACE_MS = 90_000
+
+/** What the status line currently claims, so it is only rewritten on a change. */
+let lastListening: boolean | null = null
+
+/**
+ * Keep the status line honest about whether anything is actually listening.
+ *
+ * A connected server with no watcher is the failure this project keeps hitting
+ * -- outbound works, the channel looks alive, every message sits unread. Until
+ * now the only way to know was to ask `slack_status` from inside the session.
+ * Now the channel says it, so nobody has to ask.
+ */
+async function refreshListening() {
+    if (!ANNOUNCE || stopping) return
+
+    const listening = beatHealth(readBeat(HERE, 'watcher', OWN_CHANNEL)).alive
+
+    // Do not cry about a watcher that has simply not been started yet.
+    if (!listening && Date.now() - connectedAt < LISTENING_GRACE_MS) return
+    if (listening === lastListening) return
+
+    lastListening = listening
+    diskLog(`listening state changed: ${listening ? 'watcher up' : 'WATCHER DOWN — messages will sit unread'}`)
+    await announce(true)
+}
+
 async function announce(online: boolean) {
     if (!ANNOUNCE) return
 
     const text = renderPresence({
         project: PROJECT, online, since: connectedAt,
-        ...(online ? {} : { until: Date.now() }),
+        ...(online ? { listening: lastListening ?? true } : { until: Date.now() }),
     })
 
     const existing = status.read()
@@ -1235,8 +1270,10 @@ app.start().then(() => {
     beat()
     aliveTimer = setInterval(() => {
         beat()
-        // Also clean up after any session that died without saying so.
+        // Also clean up after any session that died without saying so, and
+        // keep the line honest about whether anything is listening.
         void sweepAbandoned().catch((error) => diskLog(`status sweep failed: ${error}`))
+        void refreshListening().catch((error) => diskLog(`listening refresh failed: ${error}`))
     }, ALIVE_INTERVAL_MS)
 
     // Say so in the channel, so a quiet channel can be told from a dead one.

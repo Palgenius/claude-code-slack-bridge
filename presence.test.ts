@@ -41,6 +41,27 @@ test('renderPresence', async (t) => {
         assert.match(text, /Nothing is listening/)
     })
 
+    await t.test('amber when connected but nothing is listening', () => {
+        // The failure this whole project keeps hitting: outbound works, the
+        // channel looks alive, and every message written here sits unread.
+        // Saying "connected" in that state is a lie of omission.
+        const text = renderPresence({ project: 'p', online: true, listening: false, since })
+        assert.match(text, /^🟡 \*Claude is connected but not listening\*/)
+        assert.match(text, /wait unread/)
+        assert.doesNotMatch(text, /🟢/)
+    })
+
+    await t.test('green when it is listening, and when nothing said otherwise', () => {
+        assert.match(renderPresence({ project: 'p', online: true, listening: true, since }), /^🟢/)
+        assert.match(renderPresence({ project: 'p', online: true, since }), /^🟢/)
+    })
+
+    await t.test('offline beats not-listening', () => {
+        // A stopped server is not "connected but deaf", it is gone.
+        const text = renderPresence({ project: 'p', online: false, listening: false, since, until: since + 1000 })
+        assert.match(text, /^⚪/)
+    })
+
     await t.test('drops the separator when there is no project name', () => {
         const text = renderPresence({ project: '', online: true, since })
         assert.match(text, /^🟢 \*Claude is connected\*\n/)

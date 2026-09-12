@@ -65,6 +65,19 @@ claude  ᴀᴘᴘ 10:02
            Listening here since 10:02 — @mention me and I'll pick it up.
 ```
 
+And if the server is up but nothing is delivering messages to the session, it
+says that instead — because "connected" would be a lie of omission:
+
+```
+claude  ᴀᴘᴘ 10:04
+           🟡 Claude is connected but not listening · my-project
+           Nothing is delivering messages to the session, so anything written
+           here will wait unread. The session needs to start its mention watcher.
+```
+
+**That is the whole reason you never have to ask whether it is working.** The
+one failure that looks like silence announces itself in the channel.
+
 Exactly one of these per channel, moved to the bottom whenever it changes — so
 it is never buried under a day of conversation. When the session ends, the same
 line becomes:

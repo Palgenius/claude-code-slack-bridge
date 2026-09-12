@@ -8,15 +8,20 @@ behind the design see `SLACK_MCP_INTEGRATION.md`.
 ## Every session
 
 ```
-1. Open the project          → server connects by itself, 🟢 appears in Slack
-2. Watcher should auto-start → from the project's CLAUDE.md. Not guaranteed.
-3. Ask: "is slack connected?" → check the Watcher: line says RUNNING
-4. If NOT RUNNING            → /slack-watch
+1. Open the project  → server connects by itself
+2. Look at the channel:
+     🟢 connected              → working, nothing to do
+     🟡 connected, not listening → run /slack-watch
+     ⚪ offline                 → no session is open
 ```
 
-**Step 3 is not optional.** A dead watcher looks exactly like nobody having
-written to you: outbound still works, the channel still looks alive, and
-messages pile up unread.
+**You do not have to ask whether it is working.** The channel says so: the
+watcher being down is the one failure that used to look exactly like silence,
+and it now announces itself as an amber line within about a minute and a half.
+
+`slack_status` from inside a session gives the same answer with more detail,
+and sending a real mention tests the whole path rather than what the server
+believes about itself.
 
 ---
 
