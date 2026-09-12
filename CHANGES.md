@@ -1,3 +1,35 @@
+## 2026-09-13 (harness markup in the channel)
+
+- The card showed internal plumbing where the question should be. A live
+  channel had:
+
+  ```
+  ⏳ Working… · 28s · 3 tools · 1.5k tokens
+  <task-notification> <task-id>bpc43gd4e</task-id> <summary>Monitor event: "Slack…
+  ```
+
+  Not everything Claude Code records as a `user` message was typed by a person:
+  a watcher event arrives wrapped in `<task-notification>`, slash commands in
+  `<command-name>`, and the harness injects `<system-reminder>` blocks of its
+  own. The prompt capture took the wrapper verbatim.
+
+  The wrapper is stripped now, and the watcher's own line is unwrapped to the
+  mention it carries -- so a card started by a Slack message shows the message,
+  which is what it should have said all along. A message with no human text left
+  in it gets no question line at all, because a card with nothing on that line
+  reads better than one with an id on it.
+
+- Verified live, end to end, with `reactions:write` granted:
+
+  ```
+  22:11:45  INBOX <- what changed in the last commit?
+  22:12:14  send_slack_message: posted to thread …
+  22:12:25  marked … answered
+  ```
+
+  Mention to threaded reply in 29 seconds, 👀 replaced by ✅ on the asker's own
+  message, and no reaction failures logged.
+
 ## 2026-09-13 (the channel view, looked at properly)
 
 Three problems, all visible in a screenshot of a real channel and none of them

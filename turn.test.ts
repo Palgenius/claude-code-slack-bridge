@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
     TurnTracker, renderTurn, toolTarget, shortToolName,
-    formatDuration, formatTokens, ACTIVITY_ROWS, worthShowing, TRIVIAL_MS, type Turn,
+    formatDuration, formatTokens, ACTIVITY_ROWS, worthShowing, TRIVIAL_MS, askedText, type Turn,
 } from './turn.js'
 
 let clock = 1_700_000_000_000
@@ -377,5 +377,51 @@ test('renderTurn names the question', async (t) => {
             activity: [], tools: 1, errors: 0, files: [], outputTokens: 0,
         }, 5000)
         assert.doesNotMatch(text, /^_/m)
+    })
+})
+
+test('askedText', async (t) => {
+    await t.test('keeps an ordinary question', () => {
+        assert.equal(askedText('what changed in the last commit?'),
+            'what changed in the last commit?')
+    })
+
+    await t.test('pulls the real mention out of a watcher event', () => {
+        // This is what reached the channel as the question, verbatim:
+        //   <task-notification> <task-id>bpc43gd4e</task-id> <summary>Monitor…
+        const wrapped = '<task-notification> <task-id>bpc43gd4e</task-id> '
+            + '<summary>Monitor event: "Slack @mentions"</summary> '
+            + 'SLACK MENTION from U0USER12345 in C01ABCDEFGH thread=1789.1 :: '
+            + 'what changed in the last commit?'
+        assert.equal(askedText(wrapped), 'what changed in the last commit?')
+    })
+
+    await t.test('handles a DM line the same way', () => {
+        assert.equal(
+            askedText('SLACK DM from U0USER12345 in D01ABCDEFGH thread=1.1 :: are you there?'),
+            'are you there?')
+    })
+
+    await t.test('says nothing rather than showing harness markup', () => {
+        // A synthetic message with no human text in it should leave the card
+        // with no question line at all.
+        assert.equal(askedText('<task-notification><task-id>abc123</task-id></task-notification>'), undefined)
+        assert.equal(askedText('<system-reminder>do the thing</system-reminder>'), undefined)
+    })
+
+    await t.test('unescapes the newlines the watcher flattened', () => {
+        assert.equal(askedText('SLACK MENTION from U1 in C1 thread=1 :: fix this:\nline one'),
+            'fix this: line one')
+    })
+
+    await t.test('redacts a secret in the question', () => {
+        const out = askedText('deploy with token=abcd1234efgh please') as string
+        assert.match(out, /\[redacted\]/)
+        assert.doesNotMatch(out, /abcd1234efgh/)
+    })
+
+    await t.test('is safe on anything that is not a string', () => {
+        assert.equal(askedText(undefined), undefined)
+        assert.equal(askedText([{ type: 'tool_result' }]), undefined)
     })
 })

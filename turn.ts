@@ -128,11 +128,41 @@ function fileFrom(input: unknown): string | undefined {
 /** Tools that change a file, so "touched" means touched rather than read. */
 const WRITING_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 
-/** The asked question, redacted and cut to something that fits one line. */
-function askedText(content: unknown): string | undefined {
+/**
+ * The asked question, redacted and cut to something that fits one line.
+ *
+ * Not everything Claude Code records as a "user" message was typed by a
+ * person. A watcher event arrives wrapped in `<task-notification>`, slash
+ * commands in `<command-name>`, and the harness injects `<system-reminder>`
+ * blocks of its own. All of it reached the channel verbatim -- a card
+ * announcing `<task-notification> <task-id>bpc43gd4e</task-id> <summary>…`
+ * where the question should be.
+ *
+ * The watcher's own line is the useful case: it carries the real mention after
+ * a `::`, so the card can show what was actually asked rather than the
+ * plumbing that delivered it.
+ */
+export function askedText(content: unknown): string | undefined {
     if (typeof content !== 'string') return undefined
-    const clean = redact(content).replace(/\s+/g, ' ').trim()
-    if (!clean) return undefined
+
+    // The watcher's line, whether bare or wrapped in a notification.
+    const relayed = /SLACK (?:MENTION|DM) from \S+ in \S+(?: thread=\S+)? :: ([\s\S]*)/.exec(content)
+    let value = relayed ? relayed[1] : content
+
+    value = value
+        // Anything the harness wrapped around it.
+        .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ')
+        .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, ' ')
+        .replace(/<[^>]{1,80}>/g, ' ')
+        .replace(/\\n/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    // What is left of a purely synthetic message is punctuation and ids. A
+    // card with no question on it reads better than one with that on it.
+    if (!value || value.length < 3) return undefined
+
+    const clean = redact(value)
     return clean.length > 80 ? `${clean.slice(0, 79)}…` : clean
 }
 
