@@ -25,6 +25,7 @@ messages pile up unread.
 | Symptom | First thing to check |
 | --- | --- |
 | Sent a mention, no reply | `slack_status` → `Watcher:` line |
+| Every answer appears twice | `SLACK_STREAM_PROSE=1` is on — the card plus a mirror of Claude's own prose |
 | Watcher running, still nothing | Its first line — a `WARNING` block means wrong inbox |
 | Replies landing in the other project | Two projects, one Slack app. Expected; late not lost. |
 | Channel says 🟢 but nothing responds | Orphaned server, or watcher died. `slack_status`. |

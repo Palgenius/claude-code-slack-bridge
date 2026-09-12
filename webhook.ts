@@ -957,6 +957,16 @@ const STREAM_QUEUE_MAX = 200
  */
 const CARD_INTERVAL_MS = 4000
 
+/**
+ * Whether to mirror Claude's own prose into the channel as well as the card.
+ *
+ * Off by default. With it on, an answer arrives twice: once as the reply
+ * `send_slack_message` sent, and once as the transcript prose behind it. Worth
+ * having only when nobody is replying to Slack and the prose is the sole
+ * visibility into what the session is doing.
+ */
+const STREAM_PROSE = process.env.SLACK_STREAM_PROSE === '1'
+
 /** `0`/unset says nothing about tools, `1` their names, `detail` a target too. */
 function toolDetail(): ToolDetail {
     const value = (process.env.SLACK_STREAM_TOOLS || '0').toLowerCase()
@@ -1060,6 +1070,17 @@ function startStreaming(channel: string) {
         }
 
         if (event.kind === 'text') {
+            // Off unless asked for, and deliberately so. When Claude is
+            // answering Slack it replies with `send_slack_message`, and the
+            // prose in the transcript is what it wrote to the person at the
+            // terminal -- a near-duplicate of that reply, often with meta
+            // commentary ("Answered in the thread") that means nothing to a
+            // reader in the channel. Mirroring both put every answer in the
+            // channel twice.
+            //
+            // The card is the part worth having by default: it shows the work
+            // happening without repeating the answer.
+            if (!STREAM_PROSE) return
             enqueue(event.text, threadTs)
             return
         }

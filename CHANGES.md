@@ -1,3 +1,25 @@
+## 2026-09-13 (two blocks, one answer)
+
+- **Prose mirroring is off by default now.** With `SLACK_STREAM=1` every answer
+  arrived in the channel twice: once as the reply `send_slack_message` sent,
+  and once as the transcript prose behind it. Worse, that prose is what Claude
+  wrote to the person at the terminal, so it carried meta-commentary
+  ("Answered in the thread") that means nothing to a reader in the channel.
+
+  The live card is the part worth having by default -- it shows the work
+  happening without repeating the answer. `SLACK_STREAM_PROSE=1` brings the
+  prose back, for a session where nobody is replying to Slack and the prose is
+  the only visibility.
+
+- **Markdown tables become aligned monospace blocks.** Slack has no table
+  syntax and renders the source literally, so the separator row arrived as
+  `| --- | --- |` and a carefully built table looked like a bug. Columns are
+  padded to line up, the separator becomes a rule, and cell backticks are
+  dropped since the block is already monospace.
+
+  The rule has to run *before* inline code is parked -- a first attempt put it
+  after, and every cell holding `code` rendered as a bare placeholder number.
+
 ## 2026-09-13 (documentation, and the watcher starting itself)
 
 - Added `SETUP-NEW-PROJECT.md` and `QUICK-REFERENCE.md`, and a pointer to both

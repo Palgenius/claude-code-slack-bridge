@@ -223,7 +223,8 @@ breaks it could not appear in one.
 - **No way to interrupt Claude from Slack.** Nothing in the protocol carries it.
 - **The live view is a second or two behind** and cannot show a partial sentence.
 - **`send_slack_image` will upload any path it is given**, with no allowlist.
-- **Markdown tables are left as pipes.** Slack has no table syntax.
+- **Markdown tables become monospaced blocks.** Slack has no table syntax, so
+  the columns are padded to line up rather than arriving as stray pipes.
 
 ---
 

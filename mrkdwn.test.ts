@@ -88,9 +88,34 @@ test('toMrkdwn', async (t) => {
         assert.equal(toMrkdwn('---'), '──────────')
     })
 
-    await t.test('tables are left as they are', () => {
-        const table = '| a | b |\n| --- | --- |\n| 1 | 2 |'
-        assert.equal(toMrkdwn(table).split('\n')[0], '| a | b |')
+    await t.test('a table becomes an aligned code block', () => {
+        // Slack has no table syntax and renders the source as stray pipes —
+        // the separator row arrives as a literal "| --- | --- |", which makes
+        // a careful table look like a bug. Monospace at least holds its shape.
+        const table = '| Symptom | Cause |\n| --- | --- |\n| no styling | missing css |'
+        const out = toMrkdwn(table)
+
+        assert.match(out, /^```\n/)
+        assert.match(out, /Symptom {5}Cause/)
+        assert.match(out, /no styling {2}missing css/)
+        assert.doesNotMatch(out, /\|/)
+        assert.doesNotMatch(out, /---/)
+    })
+
+    await t.test('a table cell keeps its text, not a code placeholder', () => {
+        // The table rule has to run before inline code is parked, or a cell
+        // holding `code` captures the placeholder and the column renders as a
+        // bare number.
+        const table = '| Field | Was |\n| --- | --- |\n| path | `req.path` |'
+        const out = toMrkdwn(table)
+
+        assert.match(out, /req\.path/)
+        assert.doesNotMatch(out, //)
+    })
+
+    await t.test('leaves a line of pipes that is not a table alone', () => {
+        // No separator row means it was never a table.
+        assert.equal(toMrkdwn('a | b | c'), 'a | b | c')
     })
 })
 
