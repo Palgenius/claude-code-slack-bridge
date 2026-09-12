@@ -13,6 +13,7 @@ slack-inbox-*.jsonl
 slack-inbox-*.jsonl.1
 slack-inbox-*.cursor
 slack-alive*.json
+slack-watcher*.json
 slack-status*.json
 slack-alive*.tmp
 attachments/
