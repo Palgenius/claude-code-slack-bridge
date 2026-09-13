@@ -6,7 +6,7 @@ import * as path from 'path'
 
 import {
     renderPresence, formatUptime, StatusStore, projectName, findAbandoned,
-    readBeat, writeBeat, beatHealth, beatFile,
+    readBeat, writeBeat, beatHealth, beatFile, pidAlive,
 } from './presence.js'
 
 const tempDir = (tag: string) => fs.mkdtempSync(path.join(os.tmpdir(), `presence-${tag}-`))
@@ -226,10 +226,31 @@ test('heartbeats', async (t) => {
         assert.equal(readBeat(dir, 'watcher', 'C0AAA')?.pid, 2)
     })
 
-    await t.test('a fresh beat reads as running', () => {
-        const health = beatHealth({ pid: 7, at: NOW - 5_000 }, { now: NOW })
+    await t.test('a fresh beat from a live process reads as running', () => {
+        const health = beatHealth({ pid: 7, at: NOW - 5_000 }, { now: NOW, isAlive: () => true })
         assert.equal(health.alive, true)
         assert.match(health.detail, /pid 7/)
+    })
+
+    await t.test('a fresh beat from a DEAD process is not running', () => {
+        // The bug this exists for: slack_status reported
+        //   Watcher: RUNNING - pid 38296
+        // for a process that no longer existed. It had died inside the
+        // staleness window, so the file had not aged out yet. A diagnostic
+        // that reports the last thing it was told is worse than none, because
+        // it gets believed -- and this is the one tool meant to catch exactly
+        // this failure.
+        const health = beatHealth({ pid: 38296, at: NOW - 5_000 }, { now: NOW, isAlive: () => false })
+        assert.equal(health.alive, false)
+        assert.match(health.detail, /38296/)
+        assert.match(health.detail, /not running/)
+    })
+
+    await t.test('staleness still wins without consulting the process table', () => {
+        // An old beat is stopped regardless; a recycled pid must not resurrect it.
+        const health = beatHealth({ pid: 7, at: NOW - 600_000 }, { now: NOW, isAlive: () => true })
+        assert.equal(health.alive, false)
+        assert.match(health.detail, /stopped/)
     })
 
     await t.test('a stale beat reads as stopped, and says how long ago', () => {
@@ -250,5 +271,18 @@ test('heartbeats', async (t) => {
         const dir = tempDir('torn')
         fs.writeFileSync(beatFile(dir, 'server', 'C0AAA'), '{"pid":1,"at"')
         assert.equal(readBeat(dir, 'server', 'C0AAA'), null)
+    })
+})
+
+test('pidAlive', async (t) => {
+    await t.test('this process is alive', () => {
+        assert.equal(pidAlive(process.pid), true)
+    })
+
+    await t.test('a pid that cannot exist is not', () => {
+        assert.equal(pidAlive(0), false)
+        assert.equal(pidAlive(-1), false)
+        // Above the typical pid_max on every platform this runs on.
+        assert.equal(pidAlive(0x7ffffff0), false)
     })
 })

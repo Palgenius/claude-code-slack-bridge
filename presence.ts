@@ -130,17 +130,58 @@ export function readBeat(dir: string, kind: BeatKind, channel: string): Beat | n
     }
 }
 
-/** How a heartbeat reads to a person: fresh, stale, or never seen. */
-export function beatHealth(beat: Beat | null, opts: { now?: number, staleMs?: number } = {}):
-    { alive: boolean, detail: string } {
+/**
+ * Whether a process id is actually running right now.
+ *
+ * Signal 0 performs the permission and existence checks without delivering
+ * anything. ESRCH means no such process; EPERM means it exists but belongs to
+ * somebody else, which still counts as alive.
+ */
+export function pidAlive(pid: number): boolean {
+    if (!pid || pid <= 0) return false
+    try {
+        process.kill(pid, 0)
+        return true
+    } catch (err) {
+        return (err as NodeJS.ErrnoException)?.code === 'EPERM'
+    }
+}
+
+/**
+ * How a heartbeat reads to a person: fresh, stale, or never seen.
+ *
+ * The recorded pid is checked against the process table, not just the age of
+ * the file. Staleness alone left a window of up to `staleMs` in which a watcher
+ * that had already died still reported as running -- and it did exactly that:
+ * `Watcher: RUNNING — pid 38296` for a process that no longer existed.
+ *
+ * A diagnostic that reports the last thing it was told rather than what is true
+ * is worse than no diagnostic, because it is believed. This is the one tool
+ * whose whole job is to catch a dead watcher.
+ */
+export function beatHealth(beat: Beat | null, opts: {
+    now?: number
+    staleMs?: number
+    /** Injected for tests; defaults to a real process-table check. */
+    isAlive?: (pid: number) => boolean
+} = {}): { alive: boolean, detail: string } {
     const now = opts.now ?? Date.now()
     const staleMs = opts.staleMs ?? 60_000
+    const isAlive = opts.isAlive ?? pidAlive
 
     if (!beat) return { alive: false, detail: 'not running' }
+
     const age = now - beat.at
     if (age >= staleMs) {
         return { alive: false, detail: `last seen ${formatUptime(age)} ago (pid ${beat.pid}) — stopped` }
     }
+
+    // Fresh heartbeat, but the process behind it is gone: it died within the
+    // staleness window and the file has simply not aged out yet.
+    if (!isAlive(beat.pid)) {
+        return { alive: false, detail: `pid ${beat.pid} is not running — died moments ago` }
+    }
+
     return { alive: true, detail: `running, pid ${beat.pid}` }
 }
 

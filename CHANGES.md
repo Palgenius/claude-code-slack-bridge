@@ -1,3 +1,30 @@
+## 2026-09-13 (slack_status told the truth about everything but itself)
+
+- **`beatHealth` checks the process table, not just the age of a file.**
+
+  Reported from a live session: while nothing was running, `slack_status` said
+
+  ```
+  Watcher: RUNNING - pid 38296
+  ```
+
+  for a process that did not exist. The heartbeat had a staleness threshold of
+  sixty seconds, so a watcher that died inside that window still read as alive
+  until the file aged out. The tool was reporting the last pid it had been told
+  about rather than what was true.
+
+  That is the worst place in this project for a bug to be. `slack_status` exists
+  precisely to catch a dead watcher, and it had been quoted all evening as
+  evidence that one was running. A diagnostic that reports what it was told is
+  worse than no diagnostic, because it gets believed.
+
+  `pidAlive` now checks with signal 0 -- existence and permission, no signal
+  delivered; `EPERM` counts as alive since the process exists and merely belongs
+  to somebody else. Staleness still wins on its own, so a recycled pid cannot
+  resurrect an old beat.
+
+  Found by the session that was being misled by it, which is the right way round.
+
 ## 2026-09-13 (catching up on what was missed)
 
 - **Mentions sent while nothing was connected are now recovered on startup.**
