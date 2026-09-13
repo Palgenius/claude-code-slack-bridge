@@ -1,3 +1,34 @@
+## 2026-09-13 (catching up on what was missed)
+
+- **Mentions sent while nothing was connected are now recovered on startup.**
+
+  The bridge was a live listener and nothing else: Socket Mode pushes each
+  message as it is sent, and no Slack API was ever read. That left one case
+  where a message was genuinely lost rather than merely late -- anything
+  written while the channel showed offline. Slack does not queue Socket Mode
+  events for a disconnected app, so a session opening later began listening
+  from that moment and never looked back. Every other failure found tonight was
+  recoverable because the message had at least been stored; this one was not.
+
+  `fetchHistory` reads `conversations.history` from the newest timestamp
+  already on record, and anything that passes the mention filter is added to
+  the inbox. Paged, and capped at five pages, because catching up is the point
+  rather than importing a channel. With nothing on record it reads a 24 hour
+  window instead of a year (`SLACK_BACKFILL_HOURS`). `SLACK_BACKFILL=0` turns
+  it off.
+
+  No new scope: `channels:history` / `groups:history` are the same ones that
+  already let the app receive events.
+
+  When it recovers anything it says so in the channel, because from the
+  asker's side those messages went unanswered with no sign anyone had seen
+  them.
+
+- `toMention` extracts the three rules the live listener applies -- a person
+  typed it, it was not us, it addresses the bot -- so the backfill cannot drift
+  from the live path. Two copies of "what counts as a mention" is exactly the
+  thing that silently diverges and starts collecting the whole channel.
+
 ## 2026-09-13 (silence, answered)
 
 - **A mention that nothing can deliver is now acknowledged in the thread.**

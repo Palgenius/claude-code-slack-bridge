@@ -161,6 +161,9 @@ recommendation rather than a fact about the code, the docs say so.
   messages
 - A message Slack delivers to the wrong project's server is **routed to the right
   inbox** rather than silently dropped
+- **Mentions sent while nothing was connected are recovered on the next start** —
+  Socket Mode drops events for a disconnected app, so these used to be lost
+  outright rather than merely late
 - Servers exit with their session instead of orphaning and holding a socket
 - Status lines left behind by a crash are corrected by any other live session
 

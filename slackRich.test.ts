@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
     uploadFile, createCanvas, postMessage, updateMessage, react,
-    deleteMessage, pinMessage, MAX_UPLOAD_BYTES, MAX_TEXT, type Deps,
+    deleteMessage, pinMessage, fetchHistory, MAX_UPLOAD_BYTES, MAX_TEXT, type Deps,
 } from './slackRich.js'
 
 const TOKEN = 'xoxb-test'
@@ -456,5 +456,71 @@ test('pinMessage', async (t) => {
         const r = await pinMessage({ token: TOKEN, channel: CHANNEL, ts: '1' }, deps)
         assert.equal(r.ok, false)
         assert.match(r.detail, /missing_scope/)
+    })
+})
+
+test('fetchHistory', async (t) => {
+    const msg = (ts: string, text = 'hi') => ({ ts, text, user: 'U0USER12345' })
+
+    await t.test('reads a page and returns it oldest-first', async () => {
+        // Slack answers newest-first; the inbox wants the order they happened.
+        const { deps, bodies } = fakeSlack({
+            'conversations.history': { ok: true, messages: [msg('300'), msg('200'), msg('100')] },
+        })
+        const r = await fetchHistory({ token: TOKEN, channel: CHANNEL, oldest: '50' }, deps)
+
+        assert.equal(r.ok, true)
+        assert.deepEqual(r.messages.map((m: any) => m.ts), ['100', '200', '300'])
+        // conversations.history is form-encoded, not JSON.
+        const sentBody = new URLSearchParams(String(bodies['conversations.history']))
+        assert.equal(sentBody.get('oldest'), '50')
+        assert.equal(sentBody.get('channel'), CHANNEL)
+    })
+
+    await t.test('follows the cursor across pages', async () => {
+        let call = 0
+        const { deps } = fakeSlack({})
+        deps.fetch = (async () => {
+            call++
+            return {
+                ok: true, status: 200,
+                json: async () => call === 1
+                    ? { ok: true, messages: [msg('100')], response_metadata: { next_cursor: 'abc' } }
+                    : { ok: true, messages: [msg('200')] },
+            } as any
+        }) as any
+
+        const r = await fetchHistory({ token: TOKEN, channel: CHANNEL }, deps)
+        assert.equal(call, 2)
+        assert.deepEqual(r.messages.map((m: any) => m.ts), ['100', '200'])
+    })
+
+    await t.test('stops at the page cap rather than reading a year', async () => {
+        // A channel with a long history should not be imported wholesale.
+        const { deps } = fakeSlack({})
+        let call = 0
+        deps.fetch = (async () => {
+            call++
+            return {
+                ok: true, status: 200,
+                json: async () => ({
+                    ok: true, messages: [msg(String(call))],
+                    response_metadata: { next_cursor: 'more' },
+                }),
+            } as any
+        }) as any
+
+        const r = await fetchHistory({ token: TOKEN, channel: CHANNEL, maxPages: 3 }, deps)
+        assert.equal(call, 3)
+        assert.match(r.detail, /page cap/)
+    })
+
+    await t.test('reports not_in_channel rather than pretending', async () => {
+        const { deps } = fakeSlack({
+            'conversations.history': { ok: false, error: 'not_in_channel' },
+        })
+        const r = await fetchHistory({ token: TOKEN, channel: CHANNEL }, deps)
+        assert.equal(r.ok, false)
+        assert.match(r.detail, /not_in_channel/)
     })
 })

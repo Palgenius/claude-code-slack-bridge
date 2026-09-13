@@ -4,7 +4,9 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-import { Inbox, mentionsBot, stripMention, isFromPerson, rotateIfLarge, type Mention } from './inbox.js'
+import {
+    Inbox, mentionsBot, stripMention, isFromPerson, rotateIfLarge, toMention, type Mention,
+} from './inbox.js'
 
 const BOT = 'U0BOT123456'
 
@@ -351,5 +353,49 @@ test('rotateIfLarge', async (t) => {
 
     await t.test('a file that is not there is not an error', () => {
         assert.equal(rotateIfLarge(path.join(os.tmpdir(), 'no-such-file.log'), 1), false)
+    })
+})
+
+test('toMention', async (t) => {
+    const CH = 'C01ABCDEFGH'
+    const raw = (over: any = {}) => ({
+        ts: '1789.001', user: 'U0USER12345', text: `<@${BOT}> deploy it`, ...over,
+    })
+
+    await t.test('turns a mention into an inbox entry', () => {
+        const m = toMention(raw(), BOT, CH)
+        assert.equal(m?.ts, '1789.001')
+        assert.equal(m?.channel, CH)
+        assert.equal(m?.user, 'U0USER12345')
+        assert.equal(m?.text, 'deploy it')
+        assert.equal(m?.thread_ts, '1789.001')
+    })
+
+    await t.test('applies the same three rules as the live listener', () => {
+        // Two copies of "what counts as a mention" is exactly what drifts and
+        // starts collecting the whole channel.
+        assert.equal(toMention(raw({ text: 'no mention here' }), BOT, CH), null)
+        assert.equal(toMention(raw({ user: BOT }), BOT, CH), null)
+        assert.equal(toMention(raw({ subtype: 'channel_join' }), BOT, CH), null)
+    })
+
+    await t.test('keeps a message that merely carries a file', () => {
+        const m = toMention(raw({ subtype: 'file_share', files: [{ id: 'F1', name: 'a.png' }] }), BOT, CH)
+        assert.equal(m?.files?.[0].name, 'a.png')
+    })
+
+    await t.test('carries the parent thread when there is one', () => {
+        assert.equal(toMention(raw({ thread_ts: '1788.500' }), BOT, CH)?.thread_ts, '1788.500')
+    })
+
+    await t.test('refuses anything that is not a message', () => {
+        assert.equal(toMention(null, BOT, CH), null)
+        assert.equal(toMention({ text: 'no ts' }, BOT, CH), null)
+        assert.equal(toMention(raw({ user: '' }), BOT, CH), null)
+    })
+
+    await t.test('never matches when the bot id is unknown', () => {
+        // Same safe direction as mentionsBot: match nothing rather than all.
+        assert.equal(toMention(raw(), '', CH), null)
     })
 })

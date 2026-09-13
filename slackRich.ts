@@ -163,6 +163,70 @@ export async function updateMessage(
 }
 
 /**
+ * Read messages a channel already holds.
+ *
+ * The bridge is otherwise a live listener: Socket Mode pushes each message as
+ * it is sent and nothing is ever fetched. That leaves one case where a message
+ * is genuinely lost rather than merely late -- anything written while no
+ * server at all was connected. Slack does not queue Socket Mode events for a
+ * disconnected app, so when a session next opens it starts listening from that
+ * moment and never looks back.
+ *
+ * This is the looking back. Given the newest timestamp already on record, it
+ * asks for everything since.
+ *
+ * Paged, because a weekend of conversation does not fit in one response, and
+ * capped, because the point is to catch up rather than to import a channel's
+ * entire history on first run.
+ *
+ * Scope: channels:history / groups:history -- the same ones that let the app
+ * receive events, which is why no new permission is needed for this.
+ */
+export async function fetchHistory(
+    opts: { token: string, channel: string, oldest?: string, limit?: number, maxPages?: number },
+    deps: Deps = realDeps
+): Promise<{ ok: boolean, detail: string, messages: any[] }> {
+    const limit = opts.limit ?? 200
+    const maxPages = opts.maxPages ?? 5
+
+    const messages: any[] = []
+    let cursor: string | undefined
+    let pages = 0
+
+    while (pages < maxPages) {
+        const body: Record<string, string> = {
+            channel: opts.channel,
+            limit: String(limit),
+        }
+        if (opts.oldest) body.oldest = opts.oldest
+        if (cursor) body.cursor = cursor
+
+        const res = await callApi(deps, opts.token, 'conversations.history', body, true)
+        if (!res?.ok) {
+            // not_in_channel is the usual one: the bot was never invited.
+            return {
+                ok: false,
+                detail: `conversations.history failed: ${res?.error || 'unknown'}`,
+                messages,
+            }
+        }
+
+        for (const m of res.messages || []) messages.push(m)
+        pages++
+
+        cursor = res.response_metadata?.next_cursor || ''
+        if (!cursor) break
+    }
+
+    // Slack answers newest-first. Oldest-first is the order they happened in,
+    // and the order the inbox should receive them.
+    messages.sort((a, b) => Number(a?.ts || 0) - Number(b?.ts || 0))
+
+    const more = pages >= maxPages && cursor ? ' (stopped at the page cap)' : ''
+    return { ok: true, detail: `read ${messages.length} message(s)${more}`, messages }
+}
+
+/**
  * Delete a message this bot posted.
  *
  * Used to keep the status line to exactly one message while still moving it to

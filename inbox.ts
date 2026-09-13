@@ -107,6 +107,53 @@ export function stripMention(text: string, botUserId: string): string {
         .trim()
 }
 
+/**
+ * Turn a raw Slack message into a Mention, or decide it is not one.
+ *
+ * The same three rules the live listener applies, in the same order: a person
+ * typed it, it was not us, and it addresses the bot. Written once here so the
+ * backfill cannot drift from the live path -- two copies of "what counts as a
+ * mention" is precisely the kind of thing that silently diverges and starts
+ * collecting the whole channel.
+ *
+ * `channel` is passed in because a history response does not repeat it on each
+ * message the way an event does.
+ */
+export function toMention(
+    raw: unknown, botUserId: string, channel: string
+): Mention | null {
+    const message = raw as any
+    if (!message || typeof message !== 'object' || !message.ts) return null
+
+    if (!isFromPerson(message.subtype)) return null
+
+    const author = String(message.user || '')
+    if (!author || author === botUserId) return null
+
+    const text = String(message.text || '')
+    if (!mentionsBot(text, botUserId)) return null
+
+    const files = (Array.isArray(message.files) ? message.files : []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        mimetype: f.mimetype,
+        size: f.size,
+        url_private_download: f.url_private_download,
+    }))
+
+    return {
+        ts: String(message.ts),
+        channel: String(channel),
+        user: author,
+        text: stripMention(text, botUserId),
+        // When it actually reached us, which for a backfilled message is now
+        // rather than when it was sent. The ts carries the real time.
+        received_at: new Date().toISOString(),
+        thread_ts: String(message.thread_ts || message.ts),
+        ...(files.length > 0 ? { files } : {}),
+    }
+}
+
 export class Inbox {
     /**
      * Roughly ten thousand mentions. Far beyond any real backlog, and small

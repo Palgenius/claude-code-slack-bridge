@@ -10,10 +10,12 @@ import {
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
-import { Inbox, mentionsBot, stripMention, isFromPerson, rotateIfLarge } from './inbox.js'
+import {
+    Inbox, mentionsBot, stripMention, isFromPerson, rotateIfLarge, toMention,
+} from './inbox.js'
 import {
     uploadFile, createCanvas, postMessage, updateMessage,
-    react, deleteMessage, pinMessage,
+    react, deleteMessage, pinMessage, fetchHistory,
 } from './slackRich.js'
 import { findTranscript, TranscriptTailer } from './transcript.js'
 import { TurnTracker, renderTurn, worthShowing, type ToolDetail } from './turn.js'
@@ -138,6 +140,64 @@ async function refreshListening() {
  */
 const DEAF_NOTICE_EVERY_MS = 10 * 60_000
 let lastDeafNotice = 0
+
+/**
+ * How far back to look on a first run, when there is nothing on record.
+ *
+ * Without a floor, a channel with a year of conversation would be read from
+ * the beginning the first time this runs, which is neither wanted nor kind to
+ * the rate limit. Anything older than this was not waiting for an answer.
+ */
+const BACKFILL_HOURS = Number(process.env.SLACK_BACKFILL_HOURS || 24)
+
+/**
+ * Catch up on mentions sent while nothing was connected.
+ *
+ * The bridge is a live listener, so a message written while the channel showed
+ * offline was never delivered to anything -- Slack does not queue Socket Mode
+ * events for a disconnected app. Every other failure tonight was recoverable
+ * because the message had at least been stored; this one was not.
+ *
+ * Runs once at startup, after the bot id is known, because mention matching is
+ * the whole filter and is impossible without it.
+ */
+async function backfill() {
+    if (!OWN_CHANNEL || !botUserId) return
+    if (process.env.SLACK_BACKFILL === '0') return
+
+    // Resume from the newest thing already on record; fall back to a window,
+    // so a first run reads a day rather than a year.
+    const known = inbox.all()
+    const newest = known.length > 0 ? Number(known[known.length - 1].ts) : 0
+    const floor = (Date.now() - BACKFILL_HOURS * 3600_000) / 1000
+    const oldest = String(Math.max(newest, floor))
+
+    const got = await fetchHistory({ token: token(), channel: OWN_CHANNEL, oldest })
+    if (!got.ok) {
+        diskLog(`backfill: ${got.detail}`)
+        return
+    }
+
+    const seen = new Set(known.map((m) => m.ts))
+    let added = 0
+    for (const raw of got.messages) {
+        const entry = toMention(raw, botUserId, OWN_CHANNEL)
+        if (!entry || seen.has(entry.ts)) continue
+        inbox.append(entry)
+        seen.add(entry.ts)
+        added++
+    }
+
+    diskLog(`backfill: ${got.detail}, ${added} missed mention(s) recovered`)
+    if (added > 0) {
+        // Worth saying in the channel: from the asker's side these went
+        // unanswered with no sign anyone had seen them.
+        await postMessage({
+            token: token(), channel: OWN_CHANNEL, mrkdwn: false,
+            text: `_Caught up on ${added} message${added === 1 ? '' : 's'} sent while nothing was connected._`,
+        })
+    }
+}
 
 /**
  * Answer in the thread when a message has arrived that nothing will deliver.
@@ -1322,8 +1382,11 @@ app.start().then(() => {
         void refreshListening().catch((error) => diskLog(`listening refresh failed: ${error}`))
     }, ALIVE_INTERVAL_MS)
 
-    // Say so in the channel, so a quiet channel can be told from a dead one.
-    void announce(true).catch((error) => diskLog(`status announce failed: ${error}`))
+    // Pick up anything sent while nothing was connected, before saying hello.
+    void backfill()
+        .catch((error) => diskLog(`backfill failed: ${error}`))
+        .then(() => announce(true))
+        .catch((error) => diskLog(`status announce failed: ${error}`))
     void sweepAbandoned().catch((error) => diskLog(`status sweep failed: ${error}`))
 
     const channel = process.env.SLACK_CHANNEL_ID
