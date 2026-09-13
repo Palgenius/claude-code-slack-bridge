@@ -192,24 +192,65 @@ if (!key) {
  * exit immediately.
  */
 const ALIVE = key ? path.join(HERE, `slack-alive-${key}.json`) : ''
-const STALE_MS = 60_000
+
+/**
+ * How long the server may be absent before this is presumed orphaned.
+ *
+ * This was sixty seconds, which was far too tight and cost hours of silence.
+ * A server restart -- an MCP reconnect, a session restart, a slow machine --
+ * leaves a gap easily longer than a minute, and the watcher would exit *on
+ * purpose* in the middle of a perfectly alive session. Nothing then brought it
+ * back, so inbound simply stopped, and the log showed no error because the
+ * exit was deliberate.
+ *
+ * Ten minutes distinguishes the two cases properly: a restart is seconds, and
+ * a session that has genuinely ended never returns. An orphan lingering for a
+ * few extra minutes is a far smaller problem than a live session going deaf.
+ */
+const STALE_MS = 10 * 60_000
+
+/** Logged once when the server goes quiet, so a gap is visible but not noisy. */
+let noticedGap = false
 let sawHeartbeat = false
+
+/** A gap worth mentioning, well before it is a gap worth quitting over. */
+const GAP_NOTICE_MS = 60_000
 
 function sessionGone() {
     if (!ALIVE) return false
+
     let beat = null
     try {
         beat = JSON.parse(fs.readFileSync(ALIVE, 'utf8'))
     } catch {
-        // Missing, or unreadable. If a beat was seen before, the file being
-        // gone means the server went with it.
-        return sawHeartbeat
+        // Missing or unreadable. Treated as maximally old, and handled by the
+        // same thresholds below rather than as an instant death sentence.
     }
-    const age = Date.now() - Number(beat?.at || 0)
-    if (age < STALE_MS) {
+    const age = beat ? Date.now() - Number(beat.at || 0) : Infinity
+
+    // Healthy.
+    if (age < GAP_NOTICE_MS) {
+        if (noticedGap) {
+            console.error('[watch-mentions] the server is back; still listening')
+            noticedGap = false
+        }
         sawHeartbeat = true
         return false
     }
+
+    // Quiet, but not long enough to call it. Keep going: the server writes
+    // mentions straight to the inbox, so anything that arrives during a
+    // restart is still picked up the moment this next polls.
+    if (age < STALE_MS) {
+        if (!noticedGap) {
+            noticedGap = true
+            console.error(`[watch-mentions] the server has been quiet for ${Math.round(age / 1000)}s`
+                + ` — still listening; will stop only if it stays away`)
+        }
+        return false
+    }
+
+    // Gone long enough that a restart is not the explanation.
     return sawHeartbeat
 }
 

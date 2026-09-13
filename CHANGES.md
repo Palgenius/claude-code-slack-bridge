@@ -1,3 +1,35 @@
+## 2026-09-13 (the watcher was killing itself)
+
+- **`STALE_MS` raised from one minute to ten.** This is the cause of the
+  recurring silence, and it was self-inflicted.
+
+  The watcher exits when the server's heartbeat goes stale, to avoid becoming
+  an orphan. The threshold was sixty seconds -- shorter than a server restart.
+  An MCP reconnect, a session restart, or a slow moment left a gap longer than
+  that, and the watcher exited *deliberately* in the middle of a perfectly
+  alive session. Nothing brought it back, and nothing logged an error, because
+  from its own point of view it had done the right thing.
+
+  One report had it dead for nearly three hours with seventeen messages unread
+  while the session was up and answering the whole time.
+
+  Ten minutes separates the two cases properly: a restart is seconds, a session
+  that has really ended never returns. An orphan lingering a few extra minutes
+  is a far smaller problem than a live session going deaf.
+
+  Between the two thresholds it now says so and keeps listening:
+
+  ```
+  [watch-mentions] the server has been quiet for 182s — still listening; will stop only if it stays away
+  [watch-mentions] the server is back; still listening
+  ```
+
+  A missing heartbeat file is treated as maximally old and put through the same
+  thresholds, rather than being an instant death sentence as before.
+
+  Verified both ways: a three minute gap leaves it running, a fifteen minute
+  absence still makes it exit.
+
 ## 2026-09-13 (slack_status told the truth about everything but itself)
 
 - **`beatHealth` checks the process table, not just the age of a file.**
