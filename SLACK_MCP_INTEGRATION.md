@@ -450,7 +450,7 @@ In order:
 cd /path/to/claude-code-slack-bridge && npm test
 ```
 
-198 tests over `inbox.ts`, `slackRich.ts`, `transcript.ts`, `mrkdwn.ts`,
+281 tests over `inbox.ts`, `slackRich.ts`, `transcript.ts`, `mrkdwn.ts`,
 `progress.ts` and `turn.ts`, using the Node test runner through `tsx`. No extra
 dependencies. `webhook.ts` opens a socket as soon as it is imported, which is
 why the testable logic lives in those modules instead.
@@ -472,6 +472,7 @@ one.
 | `mrkdwn.ts` | markdown → Slack mrkdwn, and splitting an over-long message |
 | `progress.ts` | the `slack_progress` checklist: statuses, rendering, the board store |
 | `turn.ts` | reading turns out of the transcript, and the live card |
+| `supervise-watch.mjs` | keeps the watcher alive across a crash; what a session starts |
 | `transcript.ts` | finding and tailing the session transcript, and redaction |
 | `watch-mentions.mjs` | the Monitor script for §3 |
 | `slack-debug.log` | everything the server did, next to the server; rotates at 4MB |
@@ -481,7 +482,7 @@ one.
 | `attachments/` | downloaded images |
 | `README.md` | what was changed locally in this copy, and why |
 | `CHANGES.md` | dated log of those changes |
-| `*.test.ts` | 198 tests, Node's runner through `tsx`, no extra dependencies |
+| `*.test.ts` | 281 tests, Node's runner through `tsx`, no extra dependencies |
 | `webhook.ts.bak-*` | the untouched upstream server |
 
 ---

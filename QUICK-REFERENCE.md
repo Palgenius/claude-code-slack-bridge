@@ -32,6 +32,7 @@ believes about itself.
 | Sent a mention, no reply | `slack_status` → `Watcher:` line |
 | Every answer appears twice | `SLACK_STREAM_PROSE=1` is on — the card plus a mirror of Claude's own prose |
 | Watcher running, still nothing | Its first line — a `WARNING` block means wrong inbox |
+| Was working, went quiet mid-session | `[supervise]` lines in the Monitor output; if it says *failed N times*, inbound is dead |
 | Replies landing in the other project | Two projects, one Slack app. Expected; late not lost. |
 | Channel says 🟢 but nothing responds | Orphaned server, or watcher died. `slack_status`. |
 | Two status lines in the channel | The old one could not be deleted — check the log for the `chat.delete` error |
@@ -59,12 +60,21 @@ Other channels on this Slack app (they share message delivery at random):
 
 ```
 Monitor({
-  command: 'node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project>/.mcp.json"',
-  description: 'Slack @mentions for <project>',
+  command: 'node "/path/to/claude-code-slack-bridge/supervise-watch.mjs" --config "<project>/.mcp.json"',
+  description: 'Slack @mentions for <project> (self-restarting)',
   persistent: true,
   timeout_ms: 3600000,
 })
 ```
+
+**Start `supervise-watch.mjs`, not `watch-mentions.mjs`.** The watcher exiting
+*is* the Monitor task ending, so a crash kills inbound for the rest of the
+session. The supervisor survives the crash and respawns the child, passing
+mentions through unchanged. Expect **two** processes — supervisor and watcher —
+which is normal, not a duplicate.
+
+It honours the watcher's deliberate exits rather than hot-looping on them:
+`2` (bad config) and `0` (the MCP server stopped) are left alone.
 
 **`persistent: true` is mandatory.**
 
@@ -97,7 +107,7 @@ inbound goes silently dead.
 
 ```bash
 # start the watcher outside Claude
-node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project>/.mcp.json"
+node "/path/to/claude-code-slack-bridge/supervise-watch.mjs" --config "<project>/.mcp.json"
 
 # tests
 cd /path/to/claude-code-slack-bridge && npm test
@@ -123,6 +133,9 @@ powershell -Command "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" |
 | `EPIPE: broken pipe` | An orphan writing to a dead session |
 | `Ignored (no mention)` | Someone talked in the channel without @mentioning |
 | `swept abandoned status line` | Corrected a 🟢 left behind by a crash |
+| `backfill: read N …, M recovered` | Picked up mentions sent while nothing was connected |
+| `[supervise] … restarting in Ns` | The watcher crashed and is being respawned |
+| `[supervise] failed N times` | It gave up — **inbound is dead**, not recovering |
 
 ---
 

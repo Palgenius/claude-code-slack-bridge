@@ -1,3 +1,24 @@
+## 2026-09-14 (docs caught up with the code)
+
+- The supervisor shipped undocumented. Every document still told a reader to
+  start `watch-mentions.mjs` directly under a Monitor, while the `slack-watch`
+  skill had already been changed to start `supervise-watch.mjs`. Anyone
+  following the README would have set up the exact failure the supervisor
+  exists to prevent -- a watcher whose crash ends the Monitor task and takes
+  inbound down for the rest of the session.
+
+  All four documents now name the supervisor, say why it is the thing to start,
+  and note that two processes is correct rather than a duplicate.
+
+- Test counts were stale in three files: 198, 236 and 245 against an actual 281.
+  A count nobody trusts is worse than no count, since it is the first thing that
+  makes a reader doubt the rest.
+
+- `QUICK-REFERENCE.md` gained the log lines that matter for the supervised
+  setup: `[supervise] … restarting in Ns` is recovery in progress, and
+  `[supervise] failed N times` means it gave up and inbound really is dead --
+  a distinction worth having before reading a Monitor's output at speed.
+
 ## 2026-09-13 (the watcher was killing itself)
 
 - **`STALE_MS` raised from one minute to ten.** This is the cause of the

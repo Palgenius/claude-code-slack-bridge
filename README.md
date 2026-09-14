@@ -164,6 +164,8 @@ recommendation rather than a fact about the code, the docs say so.
 - **Mentions sent while nothing was connected are recovered on the next start** —
   Socket Mode drops events for a disconnected app, so these used to be lost
   outright rather than merely late
+- **The watcher is supervised** — if it crashes it is respawned, rather than
+  taking inbound down for the rest of the session
 - Servers exit with their session instead of orphaning and holding a socket
 - Status lines left behind by a crash are corrected by any other live session
 
@@ -383,7 +385,8 @@ nobody having written to you.
 Slack ──socket──► webhook.ts ──► slack-inbox-<channel>.jsonl
                       │                      │
                       │                      ▼
-                      │        watch-mentions.mjs  (Monitor, persistent)
+                      │   supervise-watch.mjs → watch-mentions.mjs
+                      │        (Monitor, persistent)
                       │                      │
                       │                      ▼
                       │              Claude Code session
@@ -407,6 +410,7 @@ Slack ──socket──► webhook.ts ──► slack-inbox-<channel>.jsonl
 | `presence.ts` | The 🟢/⚪ status line and the heartbeat files |
 | `transcript.ts` | Finding and tailing the session transcript, and redaction |
 | `watch-mentions.mjs` | Turns a stored mention into an event in the session |
+| `supervise-watch.mjs` | Keeps the watcher alive — what a session actually starts |
 
 ---
 
@@ -416,7 +420,7 @@ Slack ──socket──► webhook.ts ──► slack-inbox-<channel>.jsonl
 npm test
 ```
 
-236 tests over eight modules using the Node test runner through `tsx` — no test
+281 tests over eight modules using the Node test runner through `tsx` — no test
 dependencies. `slackRich.ts` takes `fetch` and `fs` as injected dependencies, so
 the Slack call sequences are checked without a workspace.
 

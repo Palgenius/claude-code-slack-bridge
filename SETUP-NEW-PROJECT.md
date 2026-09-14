@@ -29,6 +29,11 @@ cause was found.
 
 **So: `slack_status` is the first thing to run when Slack seems quiet.**
 
+The watcher is started under a supervisor (`supervise-watch.mjs`) that respawns
+it if it crashes, so this is rarer than it was — but the supervisor cannot start
+it in the first place, and it stands down deliberately when the MCP server
+stops.
+
 ---
 
 ## 1. One-time: the Slack app
@@ -157,12 +162,16 @@ Run the `slack-watch` skill, or start it directly:
 
 ```
 Monitor({
-  command: 'node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project path>/.mcp.json"',
-  description: 'Slack @mentions for <project>',
+  command: 'node "/path/to/claude-code-slack-bridge/supervise-watch.mjs" --config "<project path>/.mcp.json"',
+  description: 'Slack @mentions for <project> (self-restarting)',
   persistent: true,
   timeout_ms: 3600000,
 })
 ```
+
+Start `supervise-watch.mjs`, **not** `watch-mentions.mjs` — the watcher exiting
+*is* the Monitor task ending, so a crash would kill inbound for the rest of the
+session. The supervisor respawns it instead.
 
 **Never start it with Bash `run_in_background` (10 min cap) or a Monitor
 without `persistent: true` (5 min cap).** The watcher polls forever, so either
@@ -237,7 +246,7 @@ the question.
 ### The watcher, from a terminal
 
 ```bash
-node "/path/to/claude-code-slack-bridge/watch-mentions.mjs" --config "<project>/.mcp.json"
+node "/path/to/claude-code-slack-bridge/supervise-watch.mjs" --config "<project>/.mcp.json"
 ```
 
 The bot id and channel are read out of that config. Overrides:
@@ -251,7 +260,7 @@ inbox.
 ### Housekeeping
 
 ```bash
-cd /path/to/claude-code-slack-bridge && npm test      # 236 tests
+cd /path/to/claude-code-slack-bridge && npm test      # 281 tests
 ```
 
 ---
